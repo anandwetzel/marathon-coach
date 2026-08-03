@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Generated artefacts and personal training data
+data/training.db
+data/plan_current.json
+data/marathon.ics
+data/overrides.yaml
+data/_*

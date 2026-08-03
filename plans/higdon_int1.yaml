@@ -1,0 +1,240 @@
+name: Higdon Intermediate 1 (adapted to 4 run days)
+phase: marathon
+weeks: 18
+description: >
+  Hal Higdon's Intermediate 1 structure, adapted from 5 run days to 4 because
+  Thursday and Saturday are climbing days. The dropped session is Higdon's
+  midweek 3-miler; the long run progression, the pace runs and the three
+  20-milers are preserved. Peaks at 39 miles per week.
+
+# Higdon's plans are deliberately long-run heavy - the long run reaches roughly
+# half of weekly volume in peak weeks. Removing a run day makes that ratio
+# higher still, so peak weeks carry an optional fifth recovery run. Take it
+# whenever the legs allow; it lowers the share of weekly load carried by one
+# session without adding intensity.
+schedule:
+  - week: 1
+    total: 24.0
+    kind: build
+    focus: Marathon block begins. First taste of marathon pace.
+    sessions:
+      long: {miles: 10.0, zone: easy}
+      quality: {kind: marathon_pace, miles: 5.0, zone: marathon, mp_miles: 3.0}
+      medium: {miles: 5.0, zone: easy}
+      easy: [{miles: 4.0, zone: recovery}]
+
+  - week: 2
+    total: 25.0
+    kind: build
+    sessions:
+      long: {miles: 11.0, zone: easy}
+      quality: {kind: marathon_pace, miles: 5.0, zone: marathon, mp_miles: 3.0}
+      medium: {miles: 5.0, zone: easy}
+      easy: [{miles: 4.0, zone: recovery}]
+
+  - week: 3
+    total: 22.0
+    kind: cutback
+    focus: Cutback over the holidays.
+    sessions:
+      long: {miles: 8.0, zone: easy}
+      quality: {kind: tempo, miles: 5.0, zone: threshold, tempo_minutes: 20}
+      medium: {miles: 5.0, zone: easy}
+      easy: [{miles: 4.0, zone: recovery}]
+
+  - week: 4
+    total: 27.0
+    kind: build
+    sessions:
+      long: {miles: 13.0, zone: easy}
+      quality: {kind: marathon_pace, miles: 5.0, zone: marathon, mp_miles: 4.0}
+      medium: {miles: 5.0, zone: easy}
+      easy: [{miles: 4.0, zone: recovery}]
+
+  - week: 5
+    total: 29.0
+    kind: build
+    sessions:
+      long: {miles: 14.0, zone: easy}
+      quality: {kind: marathon_pace, miles: 6.0, zone: marathon, mp_miles: 4.0}
+      medium: {miles: 5.0, zone: easy}
+      easy: [{miles: 4.0, zone: recovery}]
+
+  - week: 6
+    total: 24.0
+    kind: cutback
+    sessions:
+      long: {miles: 10.0, zone: easy}
+      quality: {kind: tempo, miles: 5.0, zone: threshold, tempo_minutes: 22}
+      medium: {miles: 5.0, zone: easy}
+      easy: [{miles: 4.0, zone: recovery}]
+
+  - week: 7
+    total: 31.5
+    kind: build
+    focus: Long run passes 15 miles. Fueling practice starts here.
+    sessions:
+      long: {miles: 16.0, zone: easy}
+      quality: {kind: marathon_pace, miles: 6.0, zone: marathon, mp_miles: 4.0}
+      medium: {miles: 5.5, zone: easy}
+      easy: [{miles: 4.0, zone: recovery}]
+      optional: [{miles: 4.0, zone: recovery}]
+    note: >
+      From here every long run is a fueling rehearsal: a gel every 40 minutes
+      with water, using exactly what you will carry at Garda. Assume you carry
+      your own - an Italian lake marathon is not guaranteed to stock the brand
+      your stomach has learned. Nothing new on race day includes nothing new in
+      your stomach.
+
+  - week: 8
+    total: 34.0
+    kind: build
+    sessions:
+      long: {miles: 17.0, zone: easy}
+      quality: {kind: marathon_pace, miles: 7.0, zone: marathon, mp_miles: 5.0}
+      medium: {miles: 6.0, zone: easy}
+      easy: [{miles: 4.0, zone: recovery}]
+      optional: [{miles: 4.0, zone: recovery}]
+
+  - week: 9
+    total: 27.0
+    kind: cutback
+    sessions:
+      long: {miles: 13.0, zone: easy}
+      quality: {kind: tempo, miles: 5.0, zone: threshold, tempo_minutes: 24}
+      medium: {miles: 5.0, zone: easy}
+      easy: [{miles: 4.0, zone: recovery}]
+
+  - week: 10
+    total: 37.0
+    kind: build
+    sessions:
+      long: {miles: 19.0, zone: easy}
+      quality: {kind: marathon_pace, miles: 7.0, zone: marathon, mp_miles: 5.0}
+      medium: {miles: 7.0, zone: easy}
+      easy: [{miles: 4.0, zone: recovery}]
+      optional: [{miles: 4.0, zone: recovery}]
+
+  - week: 11
+    total: 40.0
+    kind: peak
+    focus: First 20-miler.
+    sessions:
+      long: {miles: 20.0, zone: easy}
+      quality: {kind: marathon_pace, miles: 8.0, zone: marathon, mp_miles: 6.0}
+      medium: {miles: 8.0, zone: easy}
+      easy: [{miles: 4.0, zone: recovery}]
+      optional: [{miles: 4.0, zone: recovery}]
+
+  - week: 12
+    total: 30.0
+    kind: cutback
+    sessions:
+      long: {miles: 12.0, zone: easy}
+      quality: {kind: tempo, miles: 6.0, zone: threshold, tempo_minutes: 25}
+      medium: {miles: 7.0, zone: easy}
+      easy: [{miles: 5.0, zone: recovery}]
+
+  - week: 13
+    total: 40.0
+    kind: peak
+    focus: Second 20-miler.
+    sessions:
+      long: {miles: 20.0, zone: easy, mp_finish_miles: 4.0}
+      quality: {kind: marathon_pace, miles: 8.0, zone: marathon, mp_miles: 6.0}
+      medium: {miles: 8.0, zone: easy}
+      easy: [{miles: 4.0, zone: recovery}]
+      optional: [{miles: 4.0, zone: recovery}]
+    note: >
+      Finish this one with 4 miles at marathon pace on tired legs. It is the
+      closest rehearsal of the last hour into Malcesine that training offers.
+
+  - week: 14
+    total: 27.1
+    kind: race
+    focus: Timed half marathon trial, four weeks out.
+    sessions:
+      long: {miles: 13.1, zone: race, is_race: true}
+      medium: {miles: 6.0, zone: easy}
+      quality: {kind: easy, miles: 4.0, zone: easy}
+      easy: [{miles: 4.0, zone: recovery}]
+    race:
+      name: Half marathon time trial
+      location: Flat measured route near Amstelveen
+      distance_miles: 13.1
+      distance_label: Half marathon
+      optional: true
+      is_trial: true
+      start_time: "09:30"
+    note: >
+      Solo half at genuine race effort on the flattest route you know. This is
+      the single best predictor of the marathon result, so do not jog it and do
+      not turn it into a long run with surges - start at goal half pace and hold.
+      Fuel exactly as you will at Garda. Log it as kind=race: the result resets
+      every training pace, and the plan automatically takes 2 miles off next
+      week's 20 once it is logged. If you have to abandon, finish as an easy
+      long run and leave paces alone.
+
+  - week: 15
+    total: 40.0
+    kind: peak
+    focus: Final 20-miler, three weeks out.
+    sessions:
+      long: {miles: 20.0, zone: easy, mp_finish_miles: 5.0}
+      quality: {kind: marathon_pace, miles: 8.0, zone: marathon, mp_miles: 6.0}
+      medium: {miles: 8.0, zone: easy}
+      easy: [{miles: 4.0, zone: recovery}]
+      optional: [{miles: 4.0, zone: recovery}]
+
+  - week: 16
+    total: 31.0
+    kind: taper
+    focus: Taper begins. Volume drops, intensity stays.
+    sessions:
+      long: {miles: 14.0, zone: easy}
+      quality: {kind: marathon_pace, miles: 6.0, zone: marathon, mp_miles: 4.0}
+      medium: {miles: 7.0, zone: easy}
+      easy: [{miles: 4.0, zone: recovery}]
+
+  - week: 17
+    total: 24.0
+    kind: taper
+    focus: Legs should start feeling springy and restless. That is the taper working.
+    sessions:
+      long: {miles: 10.0, zone: easy}
+      quality: {kind: marathon_pace, miles: 5.0, zone: marathon, mp_miles: 3.0}
+      medium: {miles: 5.0, zone: easy}
+      easy: [{miles: 4.0, zone: recovery}]
+
+  - week: 18
+    total: 33.2
+    kind: race
+    focus: Race week.
+    sessions:
+      long: {miles: 26.2188, zone: race, is_race: true}
+      quality: {kind: marathon_pace, miles: 3.0, zone: marathon, mp_miles: 1.0}
+      medium: {miles: 2.0, zone: easy}
+      easy: [{miles: 2.0, zone: recovery}]
+    race:
+      name: PEAK Lake Garda 42
+      location: Limone sul Garda to Malcesine
+      distance_miles: 26.2188
+      distance_label: Marathon
+      optional: false
+      start_time: "09:00"
+    note: >
+      Race abroad, so the week is logistics as much as running. Fly to Verona or
+      Bergamo and be on the lake by Friday: the race is point to point, starting
+      in Limone on the west shore and finishing in Malcesine on the east, so
+      where you sleep decides how the morning goes. Staying in or near Limone
+      makes the 09:00 gun easy and leaves the organiser's ferry and bus shuttles
+      to get you back afterwards. Bib collection is at the expo on the 9th-10th.
+      On the course: +180 m and -160 m, gentle by marathon standards, but it
+      arrives as a long steady drag toward Arco rather than as hills, so hold
+      effort and let pace sag there. The tunnels along the Gardesana will drop
+      your watch's GPS and scramble both pace and lap distance, so run the whole
+      race on feel against the kilometre markers and do not chase a suddenly
+      panicked-looking pace field. Lake Garda has strong thermal winds that build
+      through the morning; if one is in your face, run effort and take the time
+      it costs. Aid is every 4-5 km, roughly nine stops, and the cutoff is a
+      generous 6:15.

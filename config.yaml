@@ -1,0 +1,158 @@
+# Base configuration. This file is documentation as much as settings, and the
+# app never rewrites it - edits made in the dashboard go to data/overrides.yaml
+# and are merged over the top of this. Change anything here freely.
+#
+# Times must stay quoted: unquoted "17:30" is read by YAML as the integer 1050.
+
+db_path: data/training.db
+plan_path: data/plan_current.json
+# Written as a real file (not a symlink). Point this at Dropbox so Calendar can
+# subscribe via a share link - Dropbox does not sync symlink targets reliably.
+ics_path: ~/Dropbox/Marathon/marathon.ics
+plans_dir: plans
+overrides_path: data/overrides.yaml
+
+athlete:
+  name: Anand
+  # Optional; fill these in to unlock heart-rate zones and fueling targets.
+  age: null
+  height_ft: null
+  height_in: null
+  weight_lbs: null
+  # Free-text list, e.g. ["left IT band 2023", "achilles niggle when ramping"].
+  # Any entry here makes the ramp rules more conservative (see rules.injury_caution).
+  injury_history: []
+  units: miles
+
+location:
+  name: Amstelveen
+  lat: 52.3114
+  lon: 4.8701
+  timezone: Europe/Amsterdam
+
+race:
+  name: PEAK Lake Garda 42
+  location: Limone sul Garda to Malcesine, Lake Garda, Italy
+  date: 2027-04-11
+  start_time: "09:00"
+  distance_miles: 26.2188
+  # Point to point up the west shore to Riva/Arco, then south to Malcesine.
+  # +180 m / -160 m, so gently rolling and a shade net downhill - a fair course
+  # for a first marathon, and no reason to soften the goal.
+  elevation_gain_m: 180
+  # 6:15 from the gun; the race closes at 15:15.
+  cutoff: "6:15:00"
+  # Registration closes 22 March 2027 or when the ~5,150 cap fills. Price rises
+  # by bib number: 73 EUR for bibs 1-300, up to 93 EUR for the last ones.
+  registration_deadline: 2027-03-22
+  registration_url: https://lakegarda42.com/en/lakegarda42-anmeldung/
+  # Flip to true once the bib is bought.
+  registered: false
+  # What you want. Treated as an aspiration that the tool re-tests against
+  # logged fitness, never as an assumption baked into the paces.
+  goal_time: "3:49:00"
+  # The result that actually defines success.
+  must_beat: "4:00:00"
+
+start:
+  plan_start: 2026-08-03
+  current_weekly_miles: 8.0
+  current_easy_pace: "8:30"
+  current_long_run_miles: 5.0
+  current_runs_per_week: 2
+  # How that pace actually feels: easy | moderate | hard. At low volume a
+  # "normal" training pace is usually moderate, and calling it easy inflates
+  # every derived training pace. Change this if 8:30 is genuinely conversational.
+  current_effort: moderate
+  # Planned runs are floored at this distance (race-week shakeouts excepted).
+  min_run_miles: 4.0
+
+constraints:
+  work_start: "08:00"
+  work_end: "17:00"
+  # Earliest a weekday session can realistically begin after commuting home.
+  weekday_earliest_start: "17:30"
+  weekend_start: "09:30"
+  run_days_target: 4
+  # Climbing is protected: the generator will never move or drop these.
+  climbing_days: [thursday, saturday]
+  strength_enabled: true
+  # Strength is done after climbing so it never adds a separate gym trip.
+  strength_days: [thursday, saturday]
+  # The generator picks whichever of these suits the week; you can override per week.
+  long_run_days: [saturday, sunday]
+  default_long_run_day: sunday
+  rest_day: monday
+  # The climbing gym has weights but no cardio machines. Set true only if you
+  # take out a separate gym membership; it changes the bad-weather fallback from
+  # "run a lit route or move the session" to "run it indoors".
+  treadmill_access: false
+  # Where to run once the Bos is dark. Verify these locally and edit freely -
+  # the point is to have the decision already made on a wet Tuesday at 17:30.
+  lit_routes:
+    - Beneluxbaan cycle path, lit and straight, good for tempo intervals
+    - Bosbaan rowing lake, lit along the north side, 2 km per lap
+    - Amstel towpath toward Ouderkerk, lit as far as the village
+
+rules:
+  max_weekly_increase_pct: 0.10
+  build_weeks_before_cutback: 3
+  cutback_pct: 0.78
+  # Warning threshold only. Higdon-style plans legitimately run a long run near
+  # half of weekly volume, so this is reported rather than enforced; the hard
+  # ceilings that survive rescaling live in src/plan/adapt.py.
+  long_run_max_fraction: 0.35
+  long_run_cap_miles: 20.0
+  # 7-day load divided by 28-day average. Above this, the week gets flagged.
+  acwr_flag: 1.5
+  acwr_floor: 0.8
+  taper_multipliers: [0.80, 0.60, 0.40]
+  # Days of inactivity that trigger each recovery tier.
+  gap_repeat_days: 7
+  gap_reduce_days: 14
+  gap_rebase_days: 28
+  gap_reduce_pct: 0.70
+  # Pain is logged 0-5. This many consecutive runs at or above the threshold
+  # forces a cutback week.
+  pain_threshold: 3
+  pain_consecutive: 3
+  # Set true automatically when athlete.injury_history is non-empty.
+  injury_caution: false
+  injury_caution_increase_pct: 0.07
+
+daylight:
+  # A session is "dark" if it is still running this many minutes past sunset.
+  dark_buffer_min: 30
+  # Civil twilight adds usable light after sunset.
+  twilight_min: 30
+
+trips:
+  # 2.5 weeks away over Christmas, landing squarely on the first weeks of the
+  # marathon block. This is the single biggest disruption in the plan, so the
+  # numbers below matter: runs_possible is per week, and the plan keeps the long
+  # run before anything else. Adjust once you know the destination.
+  - name: Christmas trip
+    start: 2026-12-24
+    end: 2027-01-10
+    runs_possible: 3
+    max_run_minutes: 60
+    notes: >
+      Frequency is the thing to protect here, not distance. Three runs of up to
+      an hour holds nearly all the aerobic base even with no true long run,
+      because what fades first is the habit and the leg conditioning rather than
+      endurance. If a couple of the weeks end up at two runs that is fine - the
+      ramp cap reads what you actually logged and rebuilds from there.
+
+# Example of a shorter trip:
+# trips:
+#   - name: Barcelona long weekend
+#     start: 2026-10-16
+#     end: 2026-10-19
+#     runs_possible: 1
+#     max_run_minutes: 45
+#     notes: hotel near the beach, flat running
+
+gear:
+  budget_eur: null
+  # Shoes get retired at this mileage; drives the "second pair" trigger.
+  shoe_retire_miles: 400

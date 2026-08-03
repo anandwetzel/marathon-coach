@@ -1,0 +1,202 @@
+name: Base Phase
+phase: base
+weeks: 18
+description: >
+  Aerobic base build from 12 to ~26 miles per week, growing 3 runs to 4 and the
+  long run from 4 to 10 miles. No run shorter than 4 miles - that matches how
+  you already train. No hard intensity until week 5 (strides) and week 13
+  (tempo); the only stress that matters here is consistent volume. Cutback
+  every fourth week at roughly 78 percent.
+
+# Sessions are roles, not weekdays. The generator assigns them to days using
+# constraints.climbing_days and the chosen long-run day.
+schedule:
+  - week: 1
+    total: 12.0
+    kind: build
+    focus: Add a third run day. Everything conversational.
+    sessions:
+      long: {miles: 4.0, zone: easy}
+      medium: {miles: 4.0, zone: easy}
+      easy: [{miles: 4.0, zone: easy}]
+    note: >
+      Run these slower than feels natural. Easy pace is around 9:15/mi, not 8:30.
+      Going too fast on easy days is the single most common reason a base build
+      stalls or ends in injury.
+
+  - week: 2
+    total: 13.0
+    kind: build
+    focus: Hold the new rhythm.
+    sessions:
+      long: {miles: 5.0, zone: easy}
+      medium: {miles: 4.0, zone: easy}
+      easy: [{miles: 4.0, zone: easy}]
+
+  - week: 3
+    total: 14.5
+    kind: build
+    focus: First nudge on the long run.
+    sessions:
+      long: {miles: 5.5, zone: easy}
+      medium: {miles: 4.5, zone: easy}
+      easy: [{miles: 4.5, zone: easy}]
+
+  - week: 4
+    total: 12.0
+    kind: cutback
+    focus: Absorb the first block.
+    sessions:
+      long: {miles: 4.0, zone: easy}
+      medium: {miles: 4.0, zone: easy}
+      easy: [{miles: 4.0, zone: easy}]
+
+  - week: 5
+    total: 15.0
+    kind: build
+    focus: Introduce strides - short, fast, fully recovered.
+    sessions:
+      long: {miles: 5.5, zone: easy}
+      medium: {miles: 4.5, zone: easy}
+      quality: {kind: strides, miles: 5.0, zone: easy, reps: 6, rep_seconds: 20}
+    note: >
+      Strides are 20 seconds at roughly mile-race effort with full walk-back
+      recovery, run at the end of an easy run. They build turnover without
+      adding meaningful fatigue.
+
+  - week: 6
+    total: 16.5
+    kind: build
+    sessions:
+      long: {miles: 6.0, zone: easy}
+      medium: {miles: 5.0, zone: easy}
+      quality: {kind: strides, miles: 5.5, zone: easy, reps: 6, rep_seconds: 20}
+
+  - week: 7
+    total: 18.0
+    kind: build
+    sessions:
+      long: {miles: 6.5, zone: easy}
+      medium: {miles: 5.5, zone: easy}
+      quality: {kind: strides, miles: 6.0, zone: easy, reps: 8, rep_seconds: 20}
+
+  - week: 8
+    total: 14.0
+    kind: cutback
+    sessions:
+      long: {miles: 5.0, zone: easy}
+      medium: {miles: 4.5, zone: easy}
+      quality: {kind: strides, miles: 4.5, zone: easy, reps: 6, rep_seconds: 20}
+
+  - week: 9
+    total: 19.5
+    kind: build
+    focus: Add the fourth run day. This is the last structural change until December.
+    sessions:
+      long: {miles: 6.0, zone: easy}
+      medium: {miles: 5.0, zone: easy}
+      quality: {kind: strides, miles: 4.5, zone: easy, reps: 8, rep_seconds: 20}
+      easy: [{miles: 4.0, zone: recovery}]
+
+  - week: 10
+    total: 21.0
+    kind: build
+    sessions:
+      long: {miles: 7.0, zone: easy}
+      medium: {miles: 5.0, zone: easy}
+      quality: {kind: strides, miles: 5.0, zone: easy, reps: 8, rep_seconds: 20}
+      easy: [{miles: 4.0, zone: recovery}]
+
+  - week: 11
+    total: 23.0
+    kind: build
+    sessions:
+      long: {miles: 7.5, zone: easy}
+      medium: {miles: 5.5, zone: easy}
+      quality: {kind: strides, miles: 5.5, zone: easy, reps: 8, rep_seconds: 20}
+      easy: [{miles: 4.5, zone: recovery}]
+
+  - week: 12
+    total: 18.0
+    kind: cutback
+    focus: Clocks have changed - every weekday run is now in the dark.
+    sessions:
+      long: {miles: 5.5, zone: easy}
+      medium: {miles: 4.5, zone: easy}
+      quality: {kind: strides, miles: 4.0, zone: easy, reps: 6, rep_seconds: 20}
+      easy: [{miles: 4.0, zone: recovery}]
+
+  - week: 13
+    total: 24.0
+    kind: build
+    focus: First real tempo work. Threshold pace should feel comfortably hard.
+    sessions:
+      long: {miles: 8.0, zone: easy}
+      medium: {miles: 5.5, zone: easy}
+      quality: {kind: tempo, miles: 5.5, zone: threshold, tempo_minutes: 15}
+      easy: [{miles: 5.0, zone: recovery}]
+
+  - week: 14
+    total: 25.5
+    kind: build
+    sessions:
+      long: {miles: 8.5, zone: easy}
+      medium: {miles: 6.0, zone: easy}
+      quality: {kind: tempo, miles: 6.0, zone: threshold, tempo_minutes: 18}
+      easy: [{miles: 5.0, zone: recovery}]
+
+  - week: 15
+    total: 23.3
+    kind: race
+    focus: Timed 15K trial. This sets the training paces for the whole marathon block.
+    sessions:
+      long: {miles: 9.3, zone: race, is_race: true}
+      medium: {miles: 5.0, zone: easy}
+      quality: {kind: easy, miles: 4.5, zone: easy}
+      easy: [{miles: 4.5, zone: recovery}]
+    race:
+      name: 15K time trial
+      location: Flat measured loop near Amstelveen
+      distance_miles: 9.3
+      distance_label: 15K
+      optional: true
+      is_trial: true
+      start_time: "09:30"
+    note: >
+      No organised race - a solo time trial instead. Pick a flat, accurately
+      measured route (Amstel towpath out-and-back or a GPS-verified loop) and
+      treat it exactly like race day: full warmup, race effort from the gun,
+      no stops for traffic lights if you can help it. The result is the first
+      hard evidence of what marathon pace should be, and every training zone
+      gets recalculated from it. Log it as kind=race. If the day is a washout,
+      run 9 miles with the last 3 at threshold instead and skip the
+      recalibration.
+
+  - week: 16
+    total: 20.0
+    kind: cutback
+    focus: Recover from the trial, then the final base push.
+    sessions:
+      long: {miles: 6.0, zone: easy}
+      medium: {miles: 5.0, zone: easy}
+      quality: {kind: easy, miles: 4.5, zone: easy}
+      easy: [{miles: 4.5, zone: recovery}]
+
+  - week: 17
+    total: 26.0
+    kind: build
+    sessions:
+      long: {miles: 9.0, zone: easy}
+      medium: {miles: 6.5, zone: easy}
+      quality: {kind: tempo, miles: 5.5, zone: threshold, tempo_minutes: 20}
+      easy: [{miles: 5.0, zone: recovery}]
+
+  - week: 18
+    total: 27.5
+    kind: build
+    focus: Base complete. The marathon block starts next week.
+    sessions:
+      long: {miles: 10.0, zone: easy}
+      medium: {miles: 6.5, zone: easy}
+      quality: {kind: tempo, miles: 6.0, zone: threshold, tempo_minutes: 20}
+      easy: [{miles: 5.0, zone: recovery}]
