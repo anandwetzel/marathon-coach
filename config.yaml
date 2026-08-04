@@ -28,6 +28,7 @@ location:
   name: Amstelveen
   lat: 52.3114
   lon: 4.8701
+  # IANA name, or "local" to use the laptop timezone at load time.
   timezone: Europe/Amsterdam
 
 race:
@@ -87,8 +88,10 @@ constraints:
   # take out a separate gym membership; it changes the bad-weather fallback from
   # "run a lit route or move the session" to "run it indoors".
   treadmill_access: false
-  # Where to run once the Bos is dark. Verify these locally and edit freely -
-  # the point is to have the decision already made on a wet Tuesday at 17:30.
+  # Where to run once the usual park trails are dark. Verify these locally and
+  # edit freely - the point is to have the decision already made on a wet
+  # Tuesday at 17:30. Friends elsewhere should replace these with lit routes
+  # near them (Settings → lit routes, or edit here).
   lit_routes:
     - Beneluxbaan cycle path, lit and straight, good for tempo intervals
     - Bosbaan rowing lake, lit along the north side, 2 km per lap
@@ -153,6 +156,13 @@ trips:
 #     notes: hotel near the beach, flat running
 
 gear:
+  # Display currency for gear prices (EUR, USD, GBP, …). Prices themselves are
+  # rough ballparks - change currency for friends abroad; tweak numbers if you care.
+  currency: EUR
   budget_eur: null
+  retailers:
+    - Run2Day Amsterdam
+    - Decathlon Amstelveen
+    - Bever
   # Shoes get retired at this mileage; drives the "second pair" trigger.
   shoe_retire_miles: 400

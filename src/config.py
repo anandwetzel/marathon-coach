@@ -59,7 +59,38 @@ def load_config(path: str | Path | None = None) -> dict:
     if cfg["athlete"].get("injury_history"):
         cfg["rules"]["injury_caution"] = True
 
+    # "local" (or a missing timezone) means the laptop's IANA zone - so a friend
+    # cloning the repo on a US machine gets America/... without editing YAML.
+    loc = cfg.setdefault("location", {})
+    tz = str(loc.get("timezone") or "local").strip()
+    if tz.lower() in {"", "local", "system"}:
+        loc["timezone"] = local_timezone_name()
+    else:
+        loc["timezone"] = tz
+
+    gear = cfg.setdefault("gear", {})
+    gear.setdefault("currency", "EUR")
+
     return cfg
+
+
+def local_timezone_name() -> str:
+    """Best-effort IANA name for the machine running the app."""
+    tz = datetime.now().astimezone().tzinfo
+    key = getattr(tz, "key", None)
+    if key:
+        return str(key)
+    # Windows / exotic tzinfo objects sometimes only expose a display name.
+    name = str(tz) if tz is not None else "UTC"
+    return name if "/" in name else "UTC"
+
+
+def currency_code(cfg: dict) -> str:
+    return str((cfg.get("gear") or {}).get("currency") or "EUR").upper()
+
+
+def money(cfg: dict, amount: float) -> str:
+    return f"{currency_code(cfg)} {amount:.0f}"
 
 
 def save_config(cfg: dict, path: str | Path | None = None) -> Path:

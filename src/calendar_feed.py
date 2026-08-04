@@ -21,7 +21,7 @@ from .plan.daylight import DARK, MARGINAL
 from .plan.generator import Plan, PlannedSession, PlannedWeek
 from .plan.schedule import assign_fingerprints, calendar_uid
 
-PRODID = "-//marathon-coach//Lake Garda 2027//EN"
+PRODID = "-//marathon-coach//EN"
 CALENDAR_NAME = "Marathon Training"
 
 # Sessions that are not runs still belong in the calendar - the plan only works

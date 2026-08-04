@@ -15,7 +15,7 @@ from src.athlete import (
     format_pace_km,
     parse_duration,
 )
-from src.config import load_config, save_config
+from src.config import load_config, save_config, currency_code, local_timezone_name
 from src.plan import daylight as D
 from src.plan.adapt import adapt_plan
 from src.plan.generator import build_plan, load as load_plan, save as save_plan
@@ -783,12 +783,13 @@ def page_gear(cfg: dict, plan, today: date) -> None:
 
     items = gearmod.recommend(cfg, plan, today)
     summary = gearmod.budget_summary(items, cfg["gear"].get("budget_eur"))
+    cur = currency_code(cfg)
 
     cols = st.columns(4)
-    cols[0].metric("Essential", f"EUR {summary['essential']}")
-    cols[1].metric("Recommended", f"EUR {summary['recommended']}")
-    cols[2].metric("Optional", f"EUR {summary['optional']}")
-    cols[3].metric("Total", f"EUR {summary['total']}")
+    cols[0].metric("Essential", f"{cur} {summary['essential']}")
+    cols[1].metric("Recommended", f"{cur} {summary['recommended']}")
+    cols[2].metric("Optional", f"{cur} {summary['optional']}")
+    cols[3].metric("Total", f"{cur} {summary['total']}")
 
     only_due = st.checkbox("Only what is due in the next three weeks")
     if only_due:
@@ -813,8 +814,44 @@ def page_gear(cfg: dict, plan, today: date) -> None:
 
 def page_settings(cfg: dict, plan, today: date) -> None:
     st.subheader("Settings")
+    race_name = cfg["race"].get("name") or "the race"
+    local_tz = local_timezone_name()
 
     with st.form("settings"):
+        st.markdown("**Location**")
+        st.caption(
+            "Daylight tags and calendar times follow this. Friends in another "
+            "country should set their city, coordinates, and timezone (or use "
+            "the laptop timezone).")
+        cols = st.columns(2)
+        loc_name = cols[0].text_input(
+            "City / area", value=str(cfg["location"].get("name") or ""))
+        use_laptop_tz = cols[1].checkbox(
+            f"Use laptop timezone ({local_tz})",
+            value=cfg["location"].get("timezone") == local_tz,
+            help="Uses the timezone of the machine running Streamlit.")
+        cols = st.columns(3)
+        lat = cols[0].number_input(
+            "Latitude", -90.0, 90.0,
+            float(cfg["location"].get("lat") or 0.0),
+            format="%.4f",
+            help="Needed for sunset / dark-run tagging.")
+        lon = cols[1].number_input(
+            "Longitude", -180.0, 180.0,
+            float(cfg["location"].get("lon") or 0.0),
+            format="%.4f")
+        tz_manual = cols[2].text_input(
+            "Timezone (IANA)",
+            value=str(cfg["location"].get("timezone") or local_tz),
+            help="e.g. America/New_York, America/Chicago, Europe/Amsterdam. "
+                 "Ignored if 'Use laptop timezone' is checked.",
+            disabled=use_laptop_tz)
+
+        lit_routes = st.text_area(
+            "Lit routes for dark evenings (one per line)",
+            value="\n".join(cfg["constraints"].get("lit_routes") or []),
+            help="Named in advance so a wet Tuesday does not become a debate.")
+
         st.markdown("**Athlete**")
         cols = st.columns(4)
         age = cols[0].number_input("Age", 0, 100,
@@ -852,16 +889,31 @@ def page_settings(cfg: dict, plan, today: date) -> None:
         goal = cols[0].text_input("Goal time", value=cfg["race"]["goal_time"])
         must = cols[1].text_input("Must beat", value=cfg["race"]["must_beat"])
         registered = st.checkbox(
-            "Bib purchased for Lake Garda",
+            f"Bib purchased for {race_name}",
             value=bool(cfg["race"].get("registered")),
             help="Stops the registration deadline nag once you have entered.")
 
         st.markdown("**Gear**")
-        budget = st.number_input(
-            "Budget (EUR, 0 for none)", 0, 5000,
+        cols = st.columns(2)
+        currency = cols[0].selectbox(
+            "Currency",
+            ["EUR", "USD", "GBP", "CAD", "AUD"],
+            index=["EUR", "USD", "GBP", "CAD", "AUD"].index(
+                currency_code(cfg) if currency_code(cfg) in
+                {"EUR", "USD", "GBP", "CAD", "AUD"} else "EUR"),
+        )
+        budget = cols[1].number_input(
+            f"Budget ({currency}, 0 for none)", 0, 5000,
             int(cfg["gear"].get("budget_eur") or 0))
 
         if st.form_submit_button("Save and re-plan", type="primary"):
+            cfg["location"]["name"] = loc_name.strip() or cfg["location"].get("name")
+            cfg["location"]["lat"] = float(lat)
+            cfg["location"]["lon"] = float(lon)
+            cfg["location"]["timezone"] = (
+                local_tz if use_laptop_tz else (tz_manual.strip() or local_tz))
+            cfg["constraints"]["lit_routes"] = [
+                line.strip() for line in lit_routes.splitlines() if line.strip()]
             cfg["athlete"]["age"] = age or None
             cfg["athlete"]["height_ft"] = height_ft or None
             cfg["athlete"]["height_in"] = height_in if height_ft or height_in else None
@@ -876,6 +928,7 @@ def page_settings(cfg: dict, plan, today: date) -> None:
             cfg["race"]["goal_time"] = goal
             cfg["race"]["must_beat"] = must
             cfg["race"]["registered"] = registered
+            cfg["gear"]["currency"] = currency
             cfg["gear"]["budget_eur"] = budget or None
             save_config(cfg)
             regenerate(cfg)
@@ -885,7 +938,7 @@ def page_settings(cfg: dict, plan, today: date) -> None:
     st.divider()
     url = cfg["race"].get("registration_url")
     if url and not cfg["race"].get("registered"):
-        st.markdown(f"[Lake Garda registration]({url})")
+        st.markdown(f"[{race_name} registration]({url})")
         st.divider()
     st.markdown("**Training paces**")
     fitness = metrics.current_fitness(cfg, today)
@@ -916,6 +969,10 @@ def page_settings(cfg: dict, plan, today: date) -> None:
                    f"update instead of duplicating.")
         st.download_button("Download marathon.ics", ics.read_bytes(),
                            file_name="marathon.ics", mime="text/calendar")
+    else:
+        st.caption(
+            f"ICS will be written to `{ics}` on the next plan rebuild. "
+            "Change `ics_path` in config.yaml if you do not use Dropbox.")
 
     st.divider()
     if st.button("Rebuild the plan from scratch"):
