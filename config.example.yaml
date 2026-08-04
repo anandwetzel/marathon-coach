@@ -1,0 +1,108 @@
+# Starter config for sharing. Copy to config.yaml (or merge the location /
+# race / start sections into yours) and edit for the runner.
+#
+# Times must stay quoted: unquoted "17:30" is read by YAML as the integer 1050.
+#
+# For a friend in the USA:
+#   1. Set location name, lat, lon (Google Maps → right-click → coordinates)
+#   2. timezone: local   OR   America/New_York / America/Chicago / etc.
+#   3. Replace lit_routes with streets / paths near them
+#   4. Set race.* to their marathon (or keep Lake Garda if that is the goal)
+#   5. gear.currency: USD
+#   6. ics_path: data/marathon.ics   (works without Dropbox)
+
+db_path: data/training.db
+plan_path: data/plan_current.json
+ics_path: data/marathon.ics
+plans_dir: plans
+overrides_path: data/overrides.yaml
+
+athlete:
+  name: Runner
+  age: null
+  height_ft: null
+  height_in: null
+  weight_lbs: null
+  injury_history: []
+  units: miles
+
+location:
+  name: Austin
+  lat: 30.2672
+  lon: -97.7431
+  # "local" uses the timezone of the machine running the app.
+  timezone: local
+
+race:
+  name: Example City Marathon
+  location: Example City, USA
+  date: 2027-04-11
+  start_time: "08:00"
+  distance_miles: 26.2188
+  elevation_gain_m: 0
+  cutoff: "6:30:00"
+  registration_deadline: null
+  registration_url: null
+  registered: false
+  goal_time: "3:59:00"
+  must_beat: "4:00:00"
+
+start:
+  plan_start: 2026-08-03
+  current_weekly_miles: 10.0
+  current_easy_pace: "9:00"
+  current_long_run_miles: 5.0
+  current_runs_per_week: 3
+  current_effort: moderate
+  min_run_miles: 4.0
+
+constraints:
+  work_start: "09:00"
+  work_end: "17:00"
+  weekday_earliest_start: "17:30"
+  weekend_start: "08:00"
+  run_days_target: 4
+  # Empty list if they do not climb - strength then needs its own days, or
+  # leave two climbing-style gym days and they can treat them as gym-only.
+  climbing_days: [thursday, saturday]
+  strength_enabled: true
+  strength_days: [thursday, saturday]
+  long_run_days: [saturday, sunday]
+  default_long_run_day: sunday
+  rest_day: monday
+  treadmill_access: false
+  lit_routes:
+    - Neighborhood loop with streetlights
+    - Lit track at the high school
+
+rules:
+  max_weekly_increase_pct: 0.10
+  build_weeks_before_cutback: 3
+  cutback_pct: 0.78
+  long_run_max_fraction: 0.35
+  long_run_cap_miles: 20.0
+  acwr_flag: 1.5
+  acwr_floor: 0.8
+  taper_multipliers: [0.80, 0.60, 0.40]
+  gap_repeat_days: 7
+  gap_reduce_days: 14
+  gap_rebase_days: 28
+  gap_reduce_pct: 0.70
+  pain_threshold: 3
+  pain_consecutive: 3
+  injury_caution: false
+  injury_caution_increase_pct: 0.07
+
+daylight:
+  dark_buffer_min: 30
+  twilight_min: 30
+
+trips: []
+
+gear:
+  currency: USD
+  budget_eur: null
+  retailers:
+    - Fleet Feet / local running store
+    - REI
+  shoe_retire_miles: 400

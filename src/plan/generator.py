@@ -461,10 +461,10 @@ def _fallback(cfg: dict, tpl: SessionTemplate, tag: str) -> str:
         return "If conditions are bad, run this on the treadmill."
 
     routes = constraints.get("lit_routes") or []
+    place = (cfg.get("location") or {}).get("name") or "your usual routes"
     if tpl.kind in {"tempo", "marathon_pace", "intervals"} and routes:
         return (f"Quality in the dark needs a lit, even surface: {routes[0]}. "
-                f"The Bos is unlit, and holding pace on unlit gravel is how "
-                f"ankles get rolled.")
+                f"Unlit gravel around {place} is how ankles get rolled.")
     if routes:
         # Descriptors on the configured routes explain what each is good for,
         # which only matters when pace does; an easy run just needs streetlights.

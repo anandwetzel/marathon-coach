@@ -1,12 +1,11 @@
 """Sunset calculation for the training location, and daylight tagging of sessions.
 
-Running happens after work, the Amsterdamse Bos is unlit, and sunset in
-Amstelveen falls below 17:00 from late October to mid-February. That covers
-essentially the whole marathon block, so whether a session lands in daylight is
-a scheduling input, not a footnote.
+Running often happens after work on unlit routes. Once sunset falls before the
+weekday start time, every evening session needs a daylight tag - so lat/lon and
+timezone in config are scheduling inputs, not footnotes.
 
 Implements the NOAA sunrise/sunset equation directly to avoid a dependency;
-accurate to well under a minute at these latitudes.
+accurate to well under a minute at mid-latitudes.
 """
 
 from __future__ import annotations

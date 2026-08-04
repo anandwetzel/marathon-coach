@@ -14,7 +14,7 @@ from .athlete import (
     format_pace_km,
     pace_both,
 )
-from .config import load_config, save_config
+from .config import load_config, save_config, currency_code
 from .plan import templates as templatemod
 from .plan.adapt import adapt_plan, describe
 from .plan.generator import Plan, build_plan, load, save
@@ -27,7 +27,7 @@ DAYLIGHT_MARK = {"lit": "", "marginal": "  (fading light)", "dark": "  (dark)"}
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="marathon-coach",
-        description="Adaptive marathon training planner for Lake Garda 2027.")
+        description="Adaptive marathon training planner.")
     parser.add_argument("--config", help="path to config.yaml")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -283,10 +283,11 @@ def cmd_gear(cfg: dict, args) -> int:
             print(f"      {', '.join(item.retailers)}")
 
     summary = gearmod.budget_summary(items, cfg["gear"].get("budget_eur"))
-    print(f"\n  Essential EUR {summary['essential']}"
-          f" | Recommended EUR {summary['recommended']}"
-          f" | Optional EUR {summary['optional']}"
-          f" | Total EUR {summary['total']}")
+    cur = currency_code(cfg)
+    print(f"\n  Essential {cur} {summary['essential']}"
+          f" | Recommended {cur} {summary['recommended']}"
+          f" | Optional {cur} {summary['optional']}"
+          f" | Total {cur} {summary['total']}")
     return 0
 
 
