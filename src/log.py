@@ -86,6 +86,34 @@ def delete_session(cfg: dict, session_id: int) -> None:
         conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
 
 
+def get_session(cfg: dict, session_id: int) -> dict | None:
+    with connect(cfg) as conn:
+        row = conn.execute(
+            "SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def update_session(cfg: dict, session_id: int, when: date, kind: str = KIND_RUN,
+                   miles: float = 0.0, duration: str | float | None = None,
+                   rpe: int | None = None, pain: int = 0,
+                   pain_location: str = "", label: str = "",
+                   notes: str = "") -> None:
+    duration_s = parse_duration(duration) if duration not in (None, "") else None
+    with connect(cfg) as conn:
+        cur = conn.execute(
+            """UPDATE sessions SET
+                   date = ?, kind = ?, miles = ?, duration_s = ?, rpe = ?,
+                   pain = ?, pain_location = ?, label = ?, notes = ?
+               WHERE id = ?""",
+            (when.isoformat(), kind, float(miles or 0), duration_s, rpe,
+             int(pain or 0), pain_location, label, notes, session_id),
+        )
+        if cur.rowcount == 0:
+            raise KeyError(f"No session with id {session_id}")
+
+
 def load_sessions(cfg: dict, start: date | None = None,
                   end: date | None = None) -> pd.DataFrame:
     query = "SELECT * FROM sessions"
@@ -353,16 +381,32 @@ def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def summarise(row: pd.Series) -> str:
-    """One-line description of a logged session."""
-    bits = [str(row["date"]), row["kind"]]
-    if row.get("miles"):
-        bits.append(f"{row['miles']:.1f} mi")
-    if row.get("duration_s"):
+    """One-line description of a logged session (no database id)."""
+    day = row["date"]
+    day_str = day.isoformat() if hasattr(day, "isoformat") else str(day)[:10]
+    bits = [f"{day_str}:", str(row["kind"])]
+    miles = row.get("miles")
+    if miles and float(miles):
+        bits.append(f"{float(miles):g} mi")
+    if row.get("duration_s") and pd.notna(row["duration_s"]):
         bits.append(format_duration(row["duration_s"]))
-    if row.get("pace"):
-        bits.append(format_pace(row["pace"]))
-    if row.get("rpe"):
-        bits.append(f"RPE {int(row['rpe'])}")
-    if row.get("pain"):
-        bits.append(f"pain {int(row['pain'])}")
-    return "  ".join(bits)
+    pace = row.get("pace")
+    if pace is not None and pd.notna(pace):
+        try:
+            bits.append(format_pace(float(pace)))
+        except (TypeError, ValueError):
+            bits.append(str(pace))
+    if row.get("label"):
+        bits.append(f"({row['label']})")
+    return " ".join(bits)
+
+
+def entry_label(row: pd.Series) -> str:
+    """Short picker label: date: type distance."""
+    day = row["date"]
+    day_str = day.isoformat() if hasattr(day, "isoformat") else str(day)[:10]
+    kind = str(row["kind"])
+    miles = float(row["miles"] or 0)
+    if miles:
+        return f"{day_str}: {kind} {miles:g} mi"
+    return f"{day_str}: {kind}"
