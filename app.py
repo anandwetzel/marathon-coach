@@ -526,6 +526,20 @@ def page_this_week(cfg: dict, plan, today: date) -> None:
     page_schedule(cfg, plan, today)
 
 
+def _log_entry_label(row) -> str:
+    """Short picker label: date: type distance (hides sqlite ids)."""
+    day = row["date"]
+    day_str = day.isoformat() if hasattr(day, "isoformat") else str(day)[:10]
+    kind = str(row["kind"])
+    try:
+        miles = float(row["miles"] or 0)
+    except (TypeError, ValueError):
+        miles = 0.0
+    if miles:
+        return f"{day_str}: {kind} {miles:g} mi"
+    return f"{day_str}: {kind}"
+
+
 def page_log(cfg: dict, plan, today: date) -> None:
     st.subheader("Log a session")
     st.caption(
@@ -601,26 +615,98 @@ def page_log(cfg: dict, plan, today: date) -> None:
 
     st.divider()
     st.subheader("Recent sessions")
-    recent = logbook.load_sessions(cfg, start=today - timedelta(days=42))
+    # Newest first; older entries stay below the fold in the scrollable table.
+    recent = logbook.load_sessions(cfg)
     if recent.empty:
         st.caption("Nothing logged yet.")
         return
 
-    display = recent.sort_values("date", ascending=False).copy()
+    ordered = recent.sort_values(
+        ["date", "id"], ascending=[False, False]).reset_index(drop=True)
+    display = ordered.copy()
     display["pace"] = display["pace"].map(
         lambda p: format_pace(p) if pd.notna(p) else "")
     display["time"] = display["duration_s"].map(
         lambda s: format_duration(s) if pd.notna(s) else "")
     st.dataframe(
         display[["date", "kind", "miles", "time", "pace", "rpe", "pain", "notes"]],
-        hide_index=True, use_container_width=True)
+        hide_index=True, use_container_width=True, height=280)
 
-    to_delete = st.selectbox(
-        "Remove an entry", ["-"] + [f"{r['id']}: {logbook.summarise(r)}"
-                                    for _, r in display.iterrows()])
-    if to_delete != "-" and st.button("Delete"):
-        logbook.delete_session(cfg, int(to_delete.split(":")[0]))
+    # Labels hide the sqlite id; disambiguate same-day twins with time.
+    choices: dict[str, int] = {}
+    for _, r in ordered.iterrows():
+        label = _log_entry_label(r)
+        if label in choices:
+            dur = r["duration_s"]
+            extra = format_duration(dur) if pd.notna(dur) else str(int(r["id"]))
+            label = f"{label} ({extra})"
+        choices[label] = int(r["id"])
+
+    picked = st.selectbox("Edit or remove", ["-"] + list(choices))
+    if picked == "-":
+        return
+
+    session_id = choices[picked]
+    row = logbook.get_session(cfg, session_id)
+    if row is None:
+        st.warning("That entry is gone.")
+        return
+
+    kinds = [logbook.KIND_RUN, logbook.KIND_RACE, logbook.KIND_CLIMB,
+             logbook.KIND_STRENGTH, logbook.KIND_CROSS]
+    kind_index = kinds.index(row["kind"]) if row["kind"] in kinds else 0
+    duration_default = (
+        format_duration(row["duration_s"]) if row.get("duration_s") is not None
+        else "")
+
+    with st.form(f"edit_log_{session_id}"):
+        st.caption(f"Editing {_log_entry_label(pd.Series(row))}")
+        cols = st.columns(3)
+        when = cols[0].date_input(
+            "Date", value=date.fromisoformat(str(row["date"])[:10]))
+        kind = cols[1].selectbox("Type", kinds, index=kind_index)
+        label = cols[2].text_input("Label", value=row.get("label") or "")
+
+        cols = st.columns(3)
+        miles = cols[0].number_input(
+            "Miles", min_value=0.0, step=0.1,
+            value=float(row.get("miles") or 0))
+        duration = cols[1].text_input(
+            "Time", value=duration_default, placeholder="MM:SS or H:MM:SS")
+        rpe = cols[2].slider(
+            "Effort (RPE)", 1, 10,
+            int(row["rpe"]) if row.get("rpe") is not None else 5)
+
+        cols = st.columns([1, 2])
+        pain = cols[0].slider(
+            "Pain", 0, 5, int(row.get("pain") or 0))
+        pain_location = cols[1].text_input(
+            "Where", value=row.get("pain_location") or "")
+        notes = st.text_area("Notes", value=row.get("notes") or "")
+
+        save_col, del_col = st.columns(2)
+        save = save_col.form_submit_button("Save changes", type="primary")
+        delete = del_col.form_submit_button("Delete entry")
+
+    if save:
+        if duration:
+            try:
+                parse_duration(duration)
+            except ValueError:
+                st.error(f"Could not read '{duration}' as a time.")
+                return
+        logbook.update_session(
+            cfg, session_id, when=when, kind=kind, miles=miles,
+            duration=duration or None, rpe=rpe, pain=pain,
+            pain_location=pain_location, label=label, notes=notes)
         regenerate(cfg)
+        st.success("Updated. Plan re-checked.")
+        st.rerun()
+
+    if delete:
+        logbook.delete_session(cfg, session_id)
+        regenerate(cfg)
+        st.success("Deleted.")
         st.rerun()
 
 
