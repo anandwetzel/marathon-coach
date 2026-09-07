@@ -15,7 +15,10 @@ from src.athlete import (
     format_pace_km,
     parse_duration,
 )
-from src.config import load_config, save_config, currency_code, local_timezone_name
+from src.config import (
+    load_config, save_config, currency_code, local_timezone_name,
+    cross_training_name, cross_training_days,
+)
 from src.plan import daylight as D
 from src.plan.adapt import adapt_plan
 from src.plan.generator import build_plan, load as load_plan, save as save_plan
@@ -213,7 +216,7 @@ def page_schedule(cfg: dict, plan, today: date) -> None:
         ("Long Run", schedulemod.KIND_COLOUR["long"]),
         ("Easy / Medium", schedulemod.KIND_COLOUR["easy"]),
         ("Quality Run", schedulemod.KIND_COLOUR["tempo"]),
-        ("Climb", schedulemod.KIND_COLOUR["climb"]),
+        (cross_training_name(cfg), schedulemod.KIND_COLOUR["climb"]),
         ("Strength", schedulemod.KIND_COLOUR["strength"]),
         ("Race", schedulemod.KIND_COLOUR["race"]),
     ]
@@ -587,6 +590,12 @@ def page_log(cfg: dict, plan, today: date) -> None:
 
     st.divider()
     st.subheader("Import")
+    st.caption(
+        "Strava has no built-in live sync here. Download your archive from "
+        "Strava → Settings → My Account → Download or Delete Your Account → "
+        "Request Your Archive, then upload `activities.csv` below. GPX files "
+        "from individual activities also work. A direct Strava API connection "
+        "would need an OAuth app (not wired up yet).")
     cols = st.columns(2)
     with cols[0]:
         uploaded = st.file_uploader("Strava activities.csv", type="csv")
@@ -938,6 +947,22 @@ def page_settings(cfg: dict, plan, today: date) -> None:
             value="\n".join(cfg["constraints"].get("lit_routes") or []),
             help="Named in advance so a wet Tuesday does not become a debate.")
 
+        st.markdown("**Cross-training**")
+        st.caption(
+            "Protected non-running sessions (Climbing, Gym, Yoga, …). Strength "
+            "is paired to the same days. Leave days blank to disable.")
+        cols = st.columns(2)
+        xt_name = cols[0].text_input(
+            "Activity name",
+            value=cross_training_name(cfg),
+            help="Shown on the calendar and schedule.")
+        xt_days = cols[1].multiselect(
+            "Days",
+            ["monday", "tuesday", "wednesday", "thursday", "friday",
+             "saturday", "sunday"],
+            default=cross_training_days(cfg),
+        )
+
         st.markdown("**Athlete**")
         cols = st.columns(4)
         age = cols[0].number_input("Age", 0, 100,
@@ -957,18 +982,57 @@ def page_settings(cfg: dict, plan, today: date) -> None:
             help="Any entry here tightens the weekly ramp cap from 10% to 7%.")
 
         st.markdown("**Starting point**")
+        st.caption(
+            "Edit these for where you are now. Volume and paces also refresh "
+            "automatically from the log when you rebuild (race results win; "
+            "otherwise recent aerobic runs update training paces)."
+        )
+        snapshot = metrics.log_start_snapshot(cfg, today)
+        if snapshot:
+            bits = [f"~{snapshot['current_weekly_miles']:g} mi/wk"]
+            if "current_easy_pace" in snapshot:
+                bits.append(
+                    f"median {snapshot['current_easy_pace']}/mi "
+                    f"({snapshot.get('run_count', 0)} runs)"
+                )
+            st.caption("From your recent log: " + ", ".join(bits) + ".")
+        apply_log = st.checkbox(
+            "On save, overwrite starting point from the log",
+            value=False,
+            disabled=not bool(snapshot),
+            help="Uses recent peak volume and median aerobic pace from logged "
+                 "runs instead of the typed fields below.")
+
         cols = st.columns(3)
-        weekly = cols[0].number_input(
+        plan_start = cols[0].date_input(
+            "Plan start (Monday)",
+            value=cfg["start"]["plan_start"],
+            help="First Monday of the plan. Shift so the final Sunday is race day.")
+        weekly = cols[1].number_input(
             "Current weekly miles", 0.0, 100.0,
             float(cfg["start"]["current_weekly_miles"]), step=0.5)
-        pace = cols[1].text_input("Typical pace",
-                                  value=cfg["start"]["current_easy_pace"])
-        effort = cols[2].selectbox(
+        long_run = cols[2].number_input(
+            "Typical long run (mi)", 0.0, 30.0,
+            float(cfg["start"]["current_long_run_miles"]), step=0.5)
+
+        cols = st.columns(3)
+        pace = cols[0].text_input(
+            "Typical pace",
+            value=cfg["start"]["current_easy_pace"])
+        effort = cols[1].selectbox(
             "That pace feels", ["easy", "moderate", "hard"],
             index=["easy", "moderate", "hard"].index(
                 cfg["start"].get("current_effort", "moderate")),
             help="At low volume a 'normal' pace is usually moderate. Calling it "
                  "easy inflates every training pace the plan gives you.")
+        runs_pw = cols[2].number_input(
+            "Runs per week", 1, 7,
+            int(cfg["start"].get("current_runs_per_week") or 3))
+        adapt_paces = st.checkbox(
+            "Adapt training paces from logged runs",
+            value=bool(cfg["start"].get("adapt_paces_from_log", True)),
+            help="When on, median recent aerobic pace refreshes VDOT on rebuild. "
+                 "A logged race always wins. Turn off to lock to the fields above.")
 
         st.markdown("**Goal**")
         cols = st.columns(2)
@@ -1000,6 +1064,11 @@ def page_settings(cfg: dict, plan, today: date) -> None:
                 local_tz if use_laptop_tz else (tz_manual.strip() or local_tz))
             cfg["constraints"]["lit_routes"] = [
                 line.strip() for line in lit_routes.splitlines() if line.strip()]
+            cfg["constraints"]["cross_training"] = {
+                "name": xt_name.strip() or "Gym",
+                "days": list(xt_days),
+            }
+            cfg["constraints"]["climbing_days"] = list(xt_days)
             cfg["athlete"]["age"] = age or None
             cfg["athlete"]["height_ft"] = height_ft or None
             cfg["athlete"]["height_in"] = height_in if height_ft or height_in else None
@@ -1008,9 +1077,20 @@ def page_settings(cfg: dict, plan, today: date) -> None:
             cfg["athlete"].pop("weight_kg", None)
             cfg["athlete"]["injury_history"] = [
                 line.strip() for line in injuries.splitlines() if line.strip()]
+            monday = plan_start - timedelta(days=plan_start.weekday())
+            cfg["start"]["plan_start"] = monday
             cfg["start"]["current_weekly_miles"] = weekly
+            cfg["start"]["current_long_run_miles"] = long_run
             cfg["start"]["current_easy_pace"] = pace
             cfg["start"]["current_effort"] = effort
+            cfg["start"]["current_runs_per_week"] = int(runs_pw)
+            if apply_log and snapshot:
+                for key in ("current_weekly_miles", "current_easy_pace",
+                            "current_long_run_miles", "current_effort",
+                            "current_runs_per_week"):
+                    if key in snapshot:
+                        cfg["start"][key] = snapshot[key]
+            cfg["start"]["adapt_paces_from_log"] = adapt_paces
             cfg["race"]["goal_time"] = goal
             cfg["race"]["must_beat"] = must
             cfg["race"]["registered"] = registered
@@ -1028,6 +1108,7 @@ def page_settings(cfg: dict, plan, today: date) -> None:
         st.divider()
     st.markdown("**Training paces**")
     fitness = metrics.current_fitness(cfg, today)
+    st.caption(f"From {fitness.source}.")
     st.dataframe(pd.DataFrame([
         {"zone": ZONE_LABEL[z], "per mile": format_pace(p),
          "per km": format_pace_km(p)}

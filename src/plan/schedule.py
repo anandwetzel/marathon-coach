@@ -34,7 +34,7 @@ ROLE_LABEL = {
     "quality": "Quality Run",
     "medium": "Medium Run",
     "optional": "Optional Run",
-    "climb": "Climb",
+    "climb": "Cross-train",
     "strength": "Strength",
     "rest": "Rest",
 }
@@ -137,6 +137,8 @@ def move_session(plan: Plan, fingerprint: str, new_day: date, cfg: dict,
 def plan_to_events(plan: Plan, cfg: dict,
                    include_rest: bool = False) -> list[dict]:
     """FullCalendar events with short titles (preview) and rich extendedProps."""
+    from ..config import cross_training_name
+    cross_name = cross_training_name(cfg)
     events: list[dict] = []
     for fingerprint, session in assign_fingerprints(plan).items():
         if session.kind == "rest" and not include_rest:
@@ -149,7 +151,7 @@ def plan_to_events(plan: Plan, cfg: dict,
             colour = KIND_COLOUR["long"]
         events.append({
             "id": fingerprint,
-            "title": _preview_title(session),
+            "title": _preview_title(session, cross_name),
             "start": start,
             "end": end,
             "allDay": True,
@@ -248,10 +250,10 @@ def _sort_week(week: PlannedWeek) -> None:
     week.sessions.sort(key=lambda s: (s.date, s.kind == "rest", s.role))
 
 
-def _preview_title(session: PlannedSession) -> str:
+def _preview_title(session: PlannedSession, cross_name: str = "Gym") -> str:
     """Short, scannable chip text for week/month grids."""
     if session.kind == "climb":
-        return "Climb"
+        return cross_name
     if session.kind == "strength":
         focus = (session.strength_focus or "full").split("(")[0].strip()
         # "Lower + upper" / "Upper only" / "Light" / race-week labels

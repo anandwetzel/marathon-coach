@@ -239,34 +239,52 @@ def build_fitness(source: str, miles: float, seconds: float,
     )
 
 
-def baseline_fitness(cfg: dict) -> Fitness:
-    """Fitness implied by the self-reported starting point in config.yaml.
+def fitness_from_training_pace(
+    pace_sec_per_mile: float,
+    effort: str,
+    peak_weekly_miles: float,
+    *,
+    source: str | None = None,
+    representative_miles: float = 5.0,
+) -> Fitness:
+    """Fitness from a training pace read at a sub-maximal effort.
 
-    A training run is not a race, so it is read as a sub-maximal effort at
-    `start.current_effort` of VO2max. Reading it as a genuine easy run would
-    overstate VDOT by roughly 5 points, which in turn would set every training
-    pace too fast.
+    A training run is not a race: reading a conversational pace as race-effort
+    easy would overstate VDOT by roughly 5 points and set every zone too fast.
     """
+    effort_key = str(effort or "moderate").lower()
+    pct = EFFORT_PCT.get(effort_key, EFFORT_PCT["moderate"])
+    velocity = MILE_M / (pace_sec_per_mile / 60.0)
+    vdot = vo2_at_velocity(velocity) / pct
+    paces = paces_from_vdot(vdot)
+    five_k_miles = 3.10686
+    five_k_seconds = race_time_for_vdot(vdot, five_k_miles)
+    label = source or (
+        f"training: {format_pace(pace_sec_per_mile)} ({effort_key}) "
+        f"for {representative_miles:.0f} mi"
+    )
+    return Fitness(
+        vdot=vdot,
+        source=label,
+        source_miles=five_k_miles,
+        source_seconds=five_k_seconds,
+        peak_weekly_miles=peak_weekly_miles,
+        paces=paces,
+    )
+
+
+def baseline_fitness(cfg: dict) -> Fitness:
+    """Fitness implied by the self-reported starting point in config.yaml."""
     start = cfg["start"]
     pace = parse_pace(start["current_easy_pace"])
     miles = float(start["current_long_run_miles"])
     effort = str(start.get("current_effort", "moderate")).lower()
-    pct = EFFORT_PCT.get(effort, EFFORT_PCT["moderate"])
-
-    velocity = MILE_M / (pace / 60.0)
-    vdot = vo2_at_velocity(velocity) / pct
-    paces = paces_from_vdot(vdot)
-
-    # Express the snapshot as the equivalent 5K, which is what the zones imply.
-    five_k_miles = 3.10686
-    five_k_seconds = race_time_for_vdot(vdot, five_k_miles)
-    return Fitness(
-        vdot=vdot,
+    return fitness_from_training_pace(
+        pace,
+        effort,
+        float(start["current_weekly_miles"]),
         source=f"baseline: {format_pace(pace)} ({effort}) for {miles:.0f} mi",
-        source_miles=five_k_miles,
-        source_seconds=five_k_seconds,
-        peak_weekly_miles=float(start["current_weekly_miles"]),
-        paces=paces,
+        representative_miles=miles,
     )
 
 

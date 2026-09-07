@@ -65,8 +65,11 @@ start:
   # "normal" training pace is usually moderate, and calling it easy inflates
   # every derived training pace. Change this if 8:30 is genuinely conversational.
   current_effort: moderate
-  # Planned runs are floored at this distance (race-week shakeouts excepted).
+  # Planned runs are floored at this distance (optional shakeouts excepted).
   min_run_miles: 4.0
+  # When true, rebuilds refresh VDOT from recent logged aerobic runs (races
+  # still win). Set false to lock training paces to the fields above.
+  adapt_paces_from_log: true
 
 constraints:
   work_start: "08:00"
@@ -75,18 +78,22 @@ constraints:
   weekday_earliest_start: "17:30"
   weekend_start: "09:30"
   run_days_target: 4
-  # Climbing is protected: the generator will never move or drop these.
+  # Protected non-running sessions (climbing, gym, yoga, …). Strength is paired
+  # to these days so they share one trip. Rename freely for other athletes.
+  cross_training:
+    name: Climbing
+    days: [thursday, saturday]
+  # Legacy alias - kept in sync from cross_training.days on load.
   climbing_days: [thursday, saturday]
   strength_enabled: true
-  # Strength is done after climbing so it never adds a separate gym trip.
   strength_days: [thursday, saturday]
   # The generator picks whichever of these suits the week; you can override per week.
   long_run_days: [saturday, sunday]
   default_long_run_day: sunday
   rest_day: monday
-  # The climbing gym has weights but no cardio machines. Set true only if you
-  # take out a separate gym membership; it changes the bad-weather fallback from
-  # "run a lit route or move the session" to "run it indoors".
+  # Set true only if you have indoor treadmill access; it changes the
+  # bad-weather fallback from "run a lit route or move the session" to
+  # "run it indoors".
   treadmill_access: false
   # Where to run once the usual park trails are dark. Verify these locally and
   # edit freely - the point is to have the decision already made on a wet

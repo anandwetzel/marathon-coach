@@ -55,6 +55,7 @@ start:
   current_runs_per_week: 3
   current_effort: moderate
   min_run_miles: 4.0
+  adapt_paces_from_log: true
 
 constraints:
   work_start: "09:00"
@@ -62,8 +63,11 @@ constraints:
   weekday_earliest_start: "17:30"
   weekend_start: "08:00"
   run_days_target: 4
-  # Empty list if they do not climb - strength then needs its own days, or
-  # leave two climbing-style gym days and they can treat them as gym-only.
+  # Protected non-running sessions. Use name: Gym (or Yoga, Swim, …) and the
+  # days you actually go. Leave days empty to disable. Strength pairs to these.
+  cross_training:
+    name: Gym
+    days: [thursday, saturday]
   climbing_days: [thursday, saturday]
   strength_enabled: true
   strength_days: [thursday, saturday]

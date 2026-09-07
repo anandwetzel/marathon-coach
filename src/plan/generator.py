@@ -1,9 +1,9 @@
-"""Materialize the 36-week plan: turn template roles into dated sessions.
+"""Materialize the plan: turn template roles into dated sessions.
 
-The interesting work here is day assignment. Climbing on Thursday and Saturday
-is protected, the long run can land on either weekend day, and the sequencing
-rules that prevent heavy legs landing the day before a long run have to hold
-whichever way the week is arranged.
+The interesting work here is day assignment. Configured cross-training days
+(climbing, gym, etc.) are protected, the long run can land on either weekend
+day, and sequencing rules that prevent heavy legs the day before a long run
+have to hold whichever way the week is arranged.
 """
 
 from __future__ import annotations
@@ -21,12 +21,13 @@ from ..athlete import (
     format_pace,
     goal_paces,
 )
+from ..config import cross_training_days, cross_training_name
 from ..workouts import (
     STRENGTH_FULL,
     STRENGTH_LIGHT,
     STRENGTH_RACE_WEEK,
     STRENGTH_UPPER,
-    climb_detail,
+    cross_training_detail,
     post_run_stretch,
     rest_detail,
     strength_detail,
@@ -51,15 +52,26 @@ ROLE_CLIMB = "climb"
 ROLE_STRENGTH = "strength"
 ROLE_REST = "rest"
 
-# Pace bands per zone, as (seconds slower, seconds faster) around the target.
+# Pace bands per zone, as (seconds faster, seconds slower) around the target.
+# Each window is at most ~30 seconds wide so calendar guidance stays actionable.
 PACE_BAND = {
-    "recovery": (0, 45),
-    "easy": (-15, 30),
-    "marathon": (-8, 8),
-    "threshold": (-6, 6),
-    "interval": (-5, 5),
-    "repetition": (-5, 5),
+    "recovery": (0, 30),
+    "easy": (-15, 15),
+    "marathon": (-10, 10),
+    "threshold": (-10, 10),
+    "interval": (-8, 8),
+    "repetition": (-8, 8),
     "race": (-10, 10),
+}
+
+# Within the easy/recovery aerobic band, shift the centre by role so long /
+# medium / easy runs are not identical on the calendar (+seconds = slower).
+ROLE_PACE_SHIFT = {
+    "long": 12,
+    "easy": 5,
+    "medium": -5,
+    "optional": 8,
+    "quality": 0,
 }
 
 # Long runs beyond this duration need in-run fueling rehearsal.
@@ -259,14 +271,14 @@ def _day_layout(cfg: dict, wk: WeekTemplate,
 
     Rules enforced here:
       - the configured rest day stays clear of running
-      - climbing days are protected; if the long run needs one, that climb
-        moves to the other weekend day rather than being dropped
+      - cross-training days are protected; if the long run needs one, that
+        session moves to the other weekend day rather than being dropped
       - the quality session never lands the day after a heavy lift
       - a strength session the day before a long run drops lower-body work,
         and the day after one is mobility only
     """
     constraints = cfg["constraints"]
-    climbing = [d.lower() for d in constraints["climbing_days"]]
+    cross_days = cross_training_days(cfg)
     rest_day = str(constraints["rest_day"]).lower()
     strength_on = bool(constraints.get("strength_enabled", True))
 
@@ -277,25 +289,24 @@ def _day_layout(cfg: dict, wk: WeekTemplate,
     if long_tpl:
         layout[long_day].append({"role": ROLE_LONG, "template": long_tpl})
 
-    # 2. Climbing. A climb displaced by the long run moves to the other
-    #    weekend day so the second session is not simply lost.
-    climb_days = []
-    for day in climbing:
+    # 2. Cross-training (climbing / gym / …). Displaced by the long run →
+    #    other weekend day so the second session is not simply lost.
+    protected = []
+    for day in cross_days:
         if day == long_day:
             alt = "sunday" if long_day == "saturday" else "saturday"
-            if alt != long_day and alt not in climb_days:
+            if alt != long_day and alt not in protected:
                 day = alt
             else:
                 continue
-        if day not in climb_days:
-            climb_days.append(day)
-    for day in climb_days:
+        if day not in protected:
+            protected.append(day)
+    for day in protected:
         layout[day].append({"role": ROLE_CLIMB})
 
     # 3. Running days: everything that is not rest, not the long run day.
     available = [d for d in DAYS if d != rest_day and d != long_day]
-    # Prefer days without climbing, and keep the natural Tue/Wed/Fri rhythm.
-    available.sort(key=lambda d: (d in climb_days, DAYS.index(d)))
+    available.sort(key=lambda d: (d in protected, DAYS.index(d)))
 
     remaining = [s for s in wk.sessions if s.role != ROLE_LONG]
     ordered = (
@@ -307,12 +318,12 @@ def _day_layout(cfg: dict, wk: WeekTemplate,
 
     long_index = DAYS.index(long_day)
     for tpl in ordered:
-        day = _pick_day(tpl, available, layout, climb_days, long_index, rest_day)
+        day = _pick_day(tpl, available, layout, protected, long_index, rest_day)
         layout[day].append({"role": tpl.role, "template": tpl})
 
-    # 4. Strength, paired to climbing so it never adds a separate gym trip.
+    # 4. Strength, paired to cross-training so it never adds a separate trip.
     if strength_on:
-        for day in climb_days:
+        for day in protected:
             focus = _strength_focus(day, long_day, wk)
             layout[day].append({"role": ROLE_STRENGTH, "focus": focus})
 
@@ -325,13 +336,12 @@ def _day_layout(cfg: dict, wk: WeekTemplate,
 
 
 def _pick_day(tpl: SessionTemplate, available: list[str],
-              layout: dict[str, list[dict]], climb_days: list[str],
+              layout: dict[str, list[dict]], cross_days: list[str],
               long_index: int, rest_day: str) -> str:
     """Choose the best day for one session."""
-    # Doubling a run onto a climbing day is always worse than using a free day,
-    # so every climb-day cost stays positive - it only ranks which session is
-    # least disruptive when the free days run out.
-    climb_cost = {ROLE_QUALITY: 20, ROLE_MEDIUM: 10, ROLE_EASY: 4, ROLE_OPTIONAL: 2}
+    # Doubling a run onto a cross-training day is always worse than using a
+    # free day, so every protected-day cost stays positive.
+    cross_cost = {ROLE_QUALITY: 20, ROLE_MEDIUM: 10, ROLE_EASY: 4, ROLE_OPTIONAL: 2}
     before_long_cost = {ROLE_QUALITY: 15, ROLE_MEDIUM: 3}
     after_long_cost = {ROLE_QUALITY: 12}
 
@@ -341,9 +351,9 @@ def _pick_day(tpl: SessionTemplate, available: list[str],
 
         cost = 0
         if already_running:
-            cost += 100          # never double up before every day is used
-        if day in climb_days:
-            cost += climb_cost.get(tpl.role, 5)
+            cost += 100
+        if day in cross_days:
+            cost += cross_cost.get(tpl.role, 5)
         if (long_index - idx) == 1:
             cost += before_long_cost.get(tpl.role, 0)
         if (idx - long_index) == 1:
@@ -385,12 +395,14 @@ def _materialize(cfg: dict, fitness: Fitness, wk: WeekTemplate, item: dict,
         )
 
     if role == ROLE_CLIMB:
+        label = cross_training_name(cfg)
         return PlannedSession(
             date=d.isoformat(), day=day_name, role=ROLE_CLIMB, kind="climb",
-            title=("Climbing (skip if travelling)" if _is_goal_race_week(wk)
-                   else "Climbing"),
+            title=(f"{label} (skip if travelling)" if _is_goal_race_week(wk)
+                   else label),
             optional=_is_goal_race_week(wk),
-            detail=climb_detail(race_week=_is_goal_race_week(wk)),
+            detail=cross_training_detail(
+                label, race_week=_is_goal_race_week(wk)),
         )
 
     if role == ROLE_STRENGTH:
@@ -409,10 +421,16 @@ def _materialize(cfg: dict, fitness: Fitness, wk: WeekTemplate, item: dict,
 
     low = high = None
     if pace:
-        slower, faster = PACE_BAND.get(zone, (-10, 10))
-        low, high = pace + slower, pace + faster
+        centre, slower, faster = _pace_bounds(zone, tpl.role, pace)
+        low, high = centre + slower, centre + faster
+        pace = centre
 
-    duration = (tpl.miles * pace / 60.0) if pace else 0.0
+    miles = float(tpl.miles)
+    floor = float(cfg["start"].get("min_run_miles") or 0)
+    if floor and not tpl.is_race and not tpl.optional and miles > 0:
+        miles = max(miles, floor)
+
+    duration = (miles * pace / 60.0) if pace else 0.0
     start = D.session_start(d, cfg)
     # Races start when the gun goes, not when the athlete would choose.
     if tpl.is_race and wk.race and wk.race.start_time:
@@ -420,7 +438,10 @@ def _materialize(cfg: dict, fitness: Fitness, wk: WeekTemplate, item: dict,
         start = time(int(hh), int(mm))
     tag = D.classify(d, start, duration, cfg) if duration else D.LIT
 
-    title, detail = _describe(cfg, fitness, wk, tpl, duration)
+    # Describe with the floored distance so titles match the session.
+    describe_tpl = tpl if miles == float(tpl.miles) else tpl.scaled(
+        miles / float(tpl.miles) if tpl.miles else 1.0)
+    title, detail = _describe(cfg, fitness, wk, describe_tpl, duration)
     # Every run finishes with a short stretch block specific to the session.
     stretch_kind = "long" if tpl.role == ROLE_LONG else tpl.kind
     detail = f"{detail}\n\n{post_run_stretch(stretch_kind)}"
@@ -432,7 +453,7 @@ def _materialize(cfg: dict, fitness: Fitness, wk: WeekTemplate, item: dict,
         kind="race" if tpl.is_race else tpl.kind,
         title=title,
         detail=detail,
-        miles=tpl.miles,
+        miles=miles,
         zone=zone,
         pace_target=round(pace, 1) if pace else None,
         pace_low=round(low, 1) if low else None,
@@ -470,10 +491,27 @@ def _fallback(cfg: dict, tpl: SessionTemplate, tag: str) -> str:
         # which only matters when pace does; an easy run just needs streetlights.
         names = ", ".join(r.split(",")[0].strip() for r in routes[:2])
         return (f"Dark, so stay on lit ground: {names}. If it is icy, swap this "
-                f"for climbing and let the plan absorb the miles - a fall costs "
-                f"more than a missed run.")
+                f"for {cross_training_name(cfg).lower()} and let the plan "
+                f"absorb the miles - a fall costs more than a missed run.")
     return ("Stay on lit, even ground. If it is icy, skip it rather than risk "
             "a fall; the plan re-ramps automatically.")
+
+
+def _pace_bounds(zone: str, role: str, pace: float
+                 ) -> tuple[float, float, float]:
+    """Return (centre, faster_delta, slower_delta) with a ≤30s window."""
+    faster, slower = PACE_BAND.get(zone, (-10, 10))
+    # Historical sign convention: first value is added for the fast end
+    # (usually ≤0), second for the slow end (usually ≥0).
+    shift = 0.0
+    if zone in {"easy", "recovery"}:
+        shift = float(ROLE_PACE_SHIFT.get(role, 0))
+    centre = pace + shift
+    width = abs(faster) + abs(slower)
+    if width > 30:
+        half = 15.0
+        faster, slower = -half, half
+    return centre, faster, slower
 
 
 def _race_pace(cfg: dict, fitness: Fitness, tpl: SessionTemplate) -> float:
@@ -515,7 +553,7 @@ def _describe(cfg: dict, fitness: Fitness, wk: WeekTemplate,
                       f"Result recalibrates every training pace.")
         return title, detail
 
-    band = _band_text(tpl.zone, fitness)
+    band = _band_text(tpl.zone, fitness, tpl.role)
 
     if tpl.kind == "tempo":
         warm = max(1.0, round((tpl.miles - (tpl.tempo_minutes or 20) / 8.0) / 2, 1))
@@ -548,7 +586,10 @@ def _describe(cfg: dict, fitness: Fitness, wk: WeekTemplate,
 
     if tpl.role == ROLE_LONG:
         title = f"Long run {tpl.miles:g} mi"
-        parts = [f"Steady and conversational {band}."]
+        parts = [
+            f"Steady and conversational {band}. Sit toward the slower end of "
+            f"easy - the point is time on feet, not pace."
+        ]
         if tpl.mp_finish_miles:
             parts.append(
                 f"Last {tpl.mp_finish_miles:g} mi at marathon pace "
@@ -562,22 +603,26 @@ def _describe(cfg: dict, fitness: Fitness, wk: WeekTemplate,
         return title, " ".join(parts)
 
     if tpl.role == ROLE_MEDIUM:
-        return f"Medium run {tpl.miles:g} mi", f"Steady aerobic running {band}."
+        return (
+            f"Medium run {tpl.miles:g} mi",
+            f"Steady aerobic running {band}. Brisker than the long run, still "
+            f"conversational - you should finish feeling like you could do more.",
+        )
 
     label = "Recovery" if tpl.zone == "recovery" else "Easy"
     title = f"{label} {tpl.miles:g} mi"
-    detail = f"{label} effort {band}."
+    detail = (f"{label} effort {band}. Truly easy - if in doubt, slow down.")
     if tpl.optional:
         detail += " Optional - take it when the legs feel good, skip it when they do not."
     return title, detail
 
 
-def _band_text(zone: str, fitness: Fitness) -> str:
+def _band_text(zone: str, fitness: Fitness, role: str = "") -> str:
     pace = fitness.paces.get(zone)
     if not pace:
         return ""
-    slower, faster = PACE_BAND.get(zone, (-10, 10))
-    return f"({format_pace(pace + slower)}-{format_pace(pace + faster)})"
+    centre, faster, slower = _pace_bounds(zone, role, pace)
+    return f"({format_pace(centre + faster)}-{format_pace(centre + slower)})"
 
 
 def _race_dict(race: RaceInfo) -> dict:

@@ -118,21 +118,41 @@ def test_plan_spans_to_race_day() -> None:
 
 
 def test_no_runs_stacked_onto_climbing_days() -> None:
-    print("\nDay assignment respects free days before climbing days")
+    print("\nDay assignment respects free days before cross-training days")
     cfg = load_config()
     plan = build_plan(cfg)
-    climbing = {"thursday", "saturday"}
+    protected = set(cfg["constraints"]["cross_training"]["days"])
     offenders = []
     for week in plan.weeks:
         used = {s.day for s in week.run_sessions if not s.optional}
         free = {d for d in ("tuesday", "wednesday", "friday") if d not in used}
         clashes = {s.day for s in week.run_sessions
-                   if not s.optional and s.day in climbing}
+                   if not s.optional and s.day in protected}
         if free and clashes:
             offenders.append(week.index)
     check(not offenders,
-          f"no week doubles a run onto a climbing day while a weekday is free "
+          f"no week doubles a run onto a cross-training day while a weekday is free "
           f"(offenders: {offenders})")
+
+
+def test_aerobic_roles_have_distinct_pace_windows() -> None:
+    print("\nLong / medium / easy pace windows differ and stay ≤30s wide")
+    cfg = fresh_cfg()
+    plan = build_plan(cfg)
+    week = next(w for w in plan.weeks if w.run_sessions)
+    by_role = {}
+    for session in week.run_sessions:
+        if session.zone != "easy" or not session.pace_low or not session.pace_high:
+            continue
+        by_role[session.role] = (session.pace_low, session.pace_high)
+        width = abs(session.pace_high - session.pace_low)
+        check(width <= 30.5, f"{session.role} window {width:.0f}s ≤ 30s")
+    if "long" in by_role and "medium" in by_role:
+        # Medium centre should be faster (lower sec/mi) than long centre.
+        long_c = sum(by_role["long"]) / 2
+        med_c = sum(by_role["medium"]) / 2
+        check(med_c < long_c,
+              f"medium centre {med_c:.0f}s faster than long {long_c:.0f}s")
 
 
 def test_strength_never_loads_legs_before_a_long_run() -> None:
@@ -159,6 +179,9 @@ def test_clean_plan_is_left_untouched() -> None:
     print("\nRules engine is a no-op on a clean plan")
     cfg = fresh_cfg()
     plan = build_plan(cfg)
+    # Match the template opening week so the start-volume seed does not
+    # itself reshape an otherwise clean plan.
+    cfg["start"]["current_weekly_miles"] = plan.weeks[0].planned_miles
     result = adapt_plan(cfg, plan, as_of=date(2026, 8, 3))
     check(not result.adaptations,
           f"no adaptations with an empty log "
@@ -172,6 +195,7 @@ def test_cutback_week_does_not_flatten_the_build() -> None:
     print("\nA planned cutback does not lower the ramp anchor")
     cfg = fresh_cfg()
     plan = build_plan(cfg)
+    cfg["start"]["current_weekly_miles"] = plan.weeks[0].planned_miles
     result = adapt_plan(cfg, plan, as_of=date(2026, 8, 3))
     # Base weeks 4, 8, 12 are cutbacks; the build weeks after them must survive.
     for index in (5, 9, 13):
@@ -179,6 +203,51 @@ def test_cutback_week_does_not_flatten_the_build() -> None:
         after = result.plan.weeks[index - 1].planned_miles
         check(after == before,
               f"week {index} still {before:g} mi after the preceding cutback")
+
+
+def test_start_volume_seeds_the_ramp() -> None:
+    print("\nStarting weekly miles reshape early build weeks")
+    cfg = fresh_cfg()
+    cfg["start"]["current_weekly_miles"] = 8.0
+    plan = build_plan(cfg)
+    low = adapt_plan(cfg, plan, as_of=date(2026, 8, 3))
+    check(low.plan.weeks[0].planned_miles <= 8.0 * 1.1 + 1.6,
+          f"low start caps week 1 at {low.plan.weeks[0].planned_miles:g} mi")
+
+    cfg["start"]["current_weekly_miles"] = 18.0
+    high = adapt_plan(cfg, plan, as_of=date(2026, 8, 3))
+    check(high.plan.weeks[0].planned_miles >= 17.0,
+          f"high start lifts week 1 to {high.plan.weeks[0].planned_miles:g} mi")
+
+
+def test_training_paces_adapt_from_logged_runs() -> None:
+    print("\nLogged aerobic runs refresh fitness before the first race")
+    cfg = fresh_cfg()
+    cfg["start"]["current_easy_pace"] = "8:00"
+    cfg["start"]["current_effort"] = "moderate"
+    baseline = metrics.current_fitness(cfg, date(2026, 9, 1))
+    for day, pace in [
+        (date(2026, 8, 20), "9:30"),
+        (date(2026, 8, 22), "9:40"),
+        (date(2026, 8, 24), "9:20"),
+        (date(2026, 8, 26), "9:35"),
+    ]:
+        logbook.log_session(cfg, day, miles=4.0, duration=_duration_for(4.0, pace),
+                            rpe=4)
+    adapted = metrics.current_fitness(cfg, date(2026, 9, 1))
+    check("recent training" in adapted.source, f"source is {adapted.source}")
+    check(adapted.paces["easy"] > baseline.paces["easy"],
+          f"easy pace slowed from {format_duration(baseline.paces['easy'])} "
+          f"to {format_duration(adapted.paces['easy'])}")
+    cfg["start"]["adapt_paces_from_log"] = False
+    locked = metrics.current_fitness(cfg, date(2026, 9, 1))
+    check(locked.source.startswith("baseline"),
+          f"lock falls back to baseline ({locked.source})")
+
+
+def _duration_for(miles: float, pace: str) -> str:
+    from src.athlete import parse_pace, format_duration
+    return format_duration(miles * parse_pace(pace))
 
 
 def test_under_training_pulls_the_plan_down() -> None:
@@ -384,14 +453,25 @@ def test_config_times_survive_yaml_sexagesimal() -> None:
 def test_overrides_do_not_rewrite_config() -> None:
     print("\nDashboard edits go to overrides, not config.yaml")
     import yaml
-    from src.config import PROJECT_ROOT, save_config
+    from src.config import PROJECT_ROOT, save_config, _as_date
 
     config_file = PROJECT_ROOT / "config.yaml"
     before = config_file.read_text()
+    base = yaml.safe_load(before)
 
     cfg = load_config()
     override_path = Path(tempfile.mkdtemp(prefix="marathon-ovr-")) / "ovr.yaml"
     cfg["overrides_path"] = str(override_path)
+    # Start from config.yaml alone so personal data/overrides.yaml is not
+    # re-emitted as part of the delta under test.
+    cfg["athlete"] = copy.deepcopy(base["athlete"])
+    cfg["start"] = copy.deepcopy(base["start"])
+    cfg["start"]["plan_start"] = _as_date(cfg["start"]["plan_start"])
+    cfg["race"] = copy.deepcopy(base["race"])
+    cfg["race"]["date"] = _as_date(cfg["race"]["date"])
+    if cfg["race"].get("registration_deadline"):
+        cfg["race"]["registration_deadline"] = _as_date(
+            cfg["race"]["registration_deadline"])
     cfg["race"]["goal_time"] = "3:55:00"
 
     save_config(cfg)
@@ -449,9 +529,12 @@ def main() -> int:
         test_templates_are_ramp_safe,
         test_plan_spans_to_race_day,
         test_no_runs_stacked_onto_climbing_days,
+        test_aerobic_roles_have_distinct_pace_windows,
         test_strength_never_loads_legs_before_a_long_run,
         test_clean_plan_is_left_untouched,
         test_cutback_week_does_not_flatten_the_build,
+        test_start_volume_seeds_the_ramp,
+        test_training_paces_adapt_from_logged_runs,
         test_under_training_pulls_the_plan_down,
         test_gap_tiers,
         test_pain_forces_a_cutback_and_strips_quality,
