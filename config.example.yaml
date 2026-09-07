@@ -103,6 +103,16 @@ daylight:
 
 trips: []
 
+# Optional. Create an app at https://www.strava.com/settings/api — set the
+# Authorization Callback Domain to "localhost", then paste id/secret in the
+# dashboard. Tokens are stored in data/_strava_tokens.json (gitignored).
+strava:
+  client_id: null
+  client_secret: null
+  redirect_uri: "http://localhost:8501/"
+  auto_sync_on_load: true
+  lookback_days: 90
+
 gear:
   currency: USD
   budget_eur: null

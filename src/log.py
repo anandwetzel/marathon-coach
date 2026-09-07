@@ -17,6 +17,9 @@ import pandas as pd
 
 from .athlete import format_duration, format_pace, parse_duration
 
+KM_PER_MILE = 1.609344
+METERS_PER_MILE = 1609.344
+
 KIND_RUN = "run"
 KIND_RACE = "race"
 KIND_CLIMB = "climb"
@@ -86,6 +89,41 @@ def delete_session(cfg: dict, session_id: int) -> None:
         conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
 
 
+def delete_sessions(cfg: dict, *, source: str | None = None,
+                    min_miles: float | None = None) -> int:
+    """Bulk-delete sessions. Returns how many rows were removed."""
+    clauses: list[str] = []
+    params: list = []
+    if source is not None:
+        clauses.append("source = ?")
+        params.append(source)
+    if min_miles is not None:
+        clauses.append("miles >= ?")
+        params.append(float(min_miles))
+    if not clauses:
+        raise ValueError("Refusing to delete without a filter")
+    where = " AND ".join(clauses)
+    with connect(cfg) as conn:
+        cur = conn.execute(f"DELETE FROM sessions WHERE {where}", params)
+        return cur.rowcount
+
+
+def repair_meter_distances(cfg: dict, *, min_miles: float = 100.0) -> int:
+    """Fix sessions whose distance was imported as meters-labeled-as-miles.
+
+    Returns how many rows were rewritten.
+    """
+    with connect(cfg) as conn:
+        rows = conn.execute(
+            "SELECT id, miles FROM sessions WHERE miles >= ?",
+            (float(min_miles),)).fetchall()
+        for row in rows:
+            fixed = round(float(row["miles"]) / METERS_PER_MILE, 2)
+            conn.execute("UPDATE sessions SET miles = ? WHERE id = ?",
+                         (fixed, row["id"]))
+        return len(rows)
+
+
 def get_session(cfg: dict, session_id: int) -> dict | None:
     with connect(cfg) as conn:
         row = conn.execute(
@@ -93,6 +131,16 @@ def get_session(cfg: dict, session_id: int) -> dict | None:
     if row is None:
         return None
     return dict(row)
+
+
+def has_external_id(cfg: dict, external_id: str | None) -> bool:
+    if not external_id:
+        return False
+    with connect(cfg) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM sessions WHERE external_id = ? LIMIT 1",
+            (external_id,)).fetchone()
+    return row is not None
 
 
 def update_session(cfg: dict, session_id: int, when: date, kind: str = KIND_RUN,
@@ -232,20 +280,27 @@ def clear_schedule_moves(cfg: dict) -> None:
 
 # --- Imports ---------------------------------------------------------------
 
-KM_PER_MILE = 1.609344
+# Anything above this as a "km" or "mi" reading is almost certainly meters
+# (Strava's activities.csv often stores Distance in meters).
+_DISTANCE_METERS_FLOOR = 100.0
 
 # Strava's export uses different headers across locales and export versions.
 _DATE_COLS = ["Activity Date", "activity date", "date"]
 _TYPE_COLS = ["Activity Type", "activity type", "type"]
 _NAME_COLS = ["Activity Name", "activity name", "name"]
-_DIST_COLS = ["Distance", "distance", "Distance (km)"]
+_DIST_COLS = ["Distance", "distance", "Distance (km)", "Distance (m)"]
 _TIME_COLS = ["Moving Time", "Elapsed Time", "moving time", "elapsed time"]
 _ID_COLS = ["Activity ID", "activity id", "id"]
 
 
 def import_strava_csv(cfg: dict, path: str | Path,
-                      distance_unit: str = "km") -> tuple[int, int]:
-    """Import Strava's activities.csv. Returns (imported, skipped)."""
+                      distance_unit: str = "auto") -> tuple[int, int]:
+    """Import Strava's activities.csv. Returns (imported, skipped).
+
+    ``distance_unit`` is ``auto`` (detect meters vs km vs mi), ``m``, ``km``,
+    or ``mi``. Prefer auto — many exports store Distance in meters even when
+    the Strava website shows kilometres.
+    """
     imported = skipped = 0
     with open(path, newline="", encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
@@ -259,6 +314,31 @@ def import_strava_csv(cfg: dict, path: str | Path,
             except sqlite3.IntegrityError:
                 skipped += 1
     return imported, skipped
+
+
+def distance_to_miles(value: float, unit: str = "auto") -> float:
+    """Convert a Strava distance field to miles.
+
+    Auto mode: values ≥ 100 are treated as meters (typical CSV export);
+    smaller values are treated as kilometres (website-style decimals).
+    """
+    unit = (unit or "auto").lower().strip()
+    if unit in {"m", "meter", "meters", "metre", "metres"}:
+        return value / METERS_PER_MILE
+    if unit in {"mi", "mile", "miles"}:
+        if value >= _DISTANCE_METERS_FLOOR:
+            # Guardrail: user picked miles but the file is clearly meters.
+            return value / METERS_PER_MILE
+        return value
+    if unit in {"km", "kilometer", "kilometers", "kilometre", "kilometres"}:
+        if value >= _DISTANCE_METERS_FLOOR:
+            return value / METERS_PER_MILE
+        return value / KM_PER_MILE
+    # auto
+    if value >= _DISTANCE_METERS_FLOOR:
+        return value / METERS_PER_MILE
+    # Sub-100 decimals from the website-style export are kilometres.
+    return value / KM_PER_MILE
 
 
 def _pick(row: dict, candidates: list[str]) -> str | None:
@@ -290,7 +370,7 @@ def _parse_strava_row(row: dict, distance_unit: str) -> dict | None:
     if raw_dist:
         try:
             value = float(str(raw_dist).replace(",", ""))
-            miles = value / KM_PER_MILE if distance_unit == "km" else value
+            miles = distance_to_miles(value, distance_unit)
         except ValueError:
             miles = 0.0
 

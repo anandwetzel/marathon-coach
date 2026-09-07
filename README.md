@@ -66,6 +66,20 @@ python -m src.cli gear --due-now
 streamlit run app.py
 ```
 
+**Strava live sync** (optional — API access may require a Strava subscription):
+
+1. Create an API app at [strava.com/settings/api](https://www.strava.com/settings/api).
+2. Set **Authorization Callback Domain** to `localhost`.
+3. In the dashboard **Log** tab, paste Client ID + Client Secret → **Connect Strava**.
+4. Click **Sync from Strava** (or leave auto-sync on).
+
+```bash
+python -m src.cli sync-strava
+```
+
+CSV import still works without a subscription; use distance unit **Auto** (values ≥100 are meters).
+Tokens for API sync live in `data/_strava_tokens.json` (gitignored).
+
 ## Calendar
 
 `generate` / `adapt` write `~/Dropbox/Marathon/marathon.ics` (a real file, not a
@@ -207,7 +221,8 @@ src/plan/templates.py   phase and microcycle definitions
 src/plan/generator.py   materialize the plan
 src/plan/adapt.py       rules engine
 src/plan/daylight.py    sunset calculation and session tagging
-src/log.py              session logging, Strava CSV import
+src/log.py              session logging, Strava CSV / GPX import
+src/strava.py           Strava OAuth + activity sync
 src/metrics.py          volume, ACWR, pace trend, projected finish
 src/calendar_feed.py    .ics generation
 src/gear.py             phase-gated gear recommendations

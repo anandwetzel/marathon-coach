@@ -104,6 +104,16 @@ constraints:
     - Bosbaan rowing lake, lit along the north side, 2 km per lap
     - Amstel towpath toward Ouderkerk, lit as far as the village
 
+# Optional Strava API link. Client id/secret are set in the dashboard
+# (Settings / Log) and stored in data/overrides.yaml; OAuth tokens go to
+# data/_strava_tokens.json. Create an app at https://www.strava.com/settings/api
+strava:
+  client_id: null
+  client_secret: null
+  redirect_uri: "http://localhost:8501/"
+  auto_sync_on_load: true
+  lookback_days: 90
+
 rules:
   max_weekly_increase_pct: 0.10
   build_weeks_before_cutback: 3

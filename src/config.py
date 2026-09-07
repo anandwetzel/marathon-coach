@@ -71,6 +71,11 @@ def load_config(path: str | Path | None = None) -> dict:
     gear = cfg.setdefault("gear", {})
     gear.setdefault("currency", "EUR")
 
+    strava = cfg.setdefault("strava", {})
+    strava.setdefault("redirect_uri", "http://localhost:8501/")
+    strava.setdefault("auto_sync_on_load", True)
+    strava.setdefault("lookback_days", 90)
+
     _normalize_cross_training(cfg)
 
     return cfg

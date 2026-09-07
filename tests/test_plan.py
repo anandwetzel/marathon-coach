@@ -522,6 +522,68 @@ def test_schedule_move_persists_across_rebuild():
     check(moved.as_date == target, "rebuilt plan keeps dragged date")
 
 
+def test_strava_csv_distance_units() -> None:
+    print("\nStrava CSV distance auto-detects meters")
+    check(abs(logbook.distance_to_miles(8046.72, "auto") - 5.0) < 0.02,
+          "8046 m → ~5 mi")
+    check(abs(logbook.distance_to_miles(8.05, "auto") - 5.0) < 0.05,
+          "8.05 km → ~5 mi")
+    check(abs(logbook.distance_to_miles(5.0, "mi") - 5.0) < 0.01,
+          "5 mi stays 5")
+    # Guardrail: huge "miles" are meters.
+    check(abs(logbook.distance_to_miles(8190.8, "mi") - 5.09) < 0.05,
+          "8190 as 'mi' still treated as meters")
+    row = {
+        "Activity Date": "Aug 29, 2026, 4:13:40 PM",
+        "Activity Type": "Run",
+        "Activity Name": "Afternoon Run",
+        "Distance": "8190.8",
+        "Moving Time": "2492",
+        "Activity ID": "19968915564",
+    }
+    parsed = logbook._parse_strava_row(row, "auto")
+    check(parsed is not None, "row parses")
+    check(abs(parsed["miles"] - 5.09) < 0.05, f"miles {parsed['miles']}")
+    check(parsed["duration"] == 2492.0, "moving time seconds")
+
+
+def test_strava_activity_mapping() -> None:
+    print("\nStrava API activities map into log sessions")
+    from src import strava as S
+    run = S.activity_to_session({
+        "id": 99,
+        "name": "Easy 5",
+        "sport_type": "Run",
+        "distance": 8046.72,
+        "moving_time": 2700,
+        "start_date_local": "2026-09-01T07:30:00",
+        "perceived_exertion": 4,
+    })
+    check(run is not None, "run maps")
+    check(run["kind"] == logbook.KIND_RUN, "kind is run")
+    check(abs(run["miles"] - 5.0) < 0.02, f"miles {run['miles']}")
+    check(run["duration"] == 2700, "duration seconds")
+    check(run["external_id"] == "strava:99", "external id")
+    check(run["rpe"] == 4, "rpe from perceived_exertion")
+
+    race = S.activity_to_session({
+        "id": 100,
+        "name": "5K",
+        "type": "Run",
+        "workout_type": 1,
+        "distance": 5000,
+        "moving_time": 1500,
+        "start_date_local": "2026-09-02T09:00:00",
+    })
+    check(race["kind"] == logbook.KIND_RACE, "workout_type 1 is race")
+
+    ride = S.activity_to_session({
+        "id": 101, "sport_type": "Ride", "distance": 20000,
+        "moving_time": 3600, "start_date_local": "2026-09-03T09:00:00",
+    })
+    check(ride is None, "rides are skipped")
+
+
 def main() -> int:
     for test in [
         test_vdot_matches_published_tables,
@@ -550,6 +612,8 @@ def main() -> int:
         test_overrides_do_not_rewrite_config,
         test_baseline_fitness_is_not_optimistic,
         test_schedule_move_persists_across_rebuild,
+        test_strava_csv_distance_units,
+        test_strava_activity_mapping,
     ]:
         test()
 
