@@ -2,10 +2,10 @@ name: Higdon Intermediate 1 (adapted to 4 run days)
 phase: marathon
 weeks: 18
 description: >
-  Hal Higdon's Intermediate 1 structure, adapted from 5 run days to 4 because
-  Thursday and Saturday are climbing days. The dropped session is Higdon's
+  Hal Higdon's Intermediate 1 structure, adapted from 5 run days to 4 to leave
+  room for protected cross-training days. The dropped session is Higdon's
   midweek 3-miler; the long run progression, the pace runs and the three
-  20-milers are preserved. Peaks at 39 miles per week.
+  20-milers are preserved. Peaks at ~39 miles per week.
 
 # Higdon's plans are deliberately long-run heavy - the long run reaches roughly
 # half of weekly volume in peak weeks. Removing a run day makes that ratio

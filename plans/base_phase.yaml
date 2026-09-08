@@ -2,14 +2,13 @@ name: Base Phase
 phase: base
 weeks: 18
 description: >
-  Aerobic base build from 12 to ~26 miles per week, growing 3 runs to 4 and the
-  long run from 4 to 10 miles. No run shorter than 4 miles - that matches how
-  you already train. No hard intensity until week 5 (strides) and week 13
-  (tempo); the only stress that matters here is consistent volume. Cutback
-  every fourth week at roughly 78 percent.
+  Aerobic base build from ~12 to ~26 miles per week, growing from 3 runs to 4
+  and the long run from about 4 to 10 miles. No hard intensity until strides
+  and later tempo; the only stress that matters here is consistent volume.
+  Cutback every fourth week at roughly 78 percent.
 
-# Sessions are roles, not weekdays. The generator assigns them to days using
-# constraints.climbing_days and the chosen long-run day.
+# Sessions are roles, not weekdays. The generator assigns them using
+# constraints.cross_training.days and the chosen long-run day.
 schedule:
   - week: 1
     total: 12.0
@@ -20,9 +19,9 @@ schedule:
       medium: {miles: 4.0, zone: easy}
       easy: [{miles: 4.0, zone: easy}]
     note: >
-      Run these slower than feels natural. Easy pace is around 9:15/mi, not 8:30.
-      Going too fast on easy days is the single most common reason a base build
-      stalls or ends in injury.
+      Run these slower than feels natural. Easy pace is usually well slower than
+      a typical training pace. Going too fast on easy days is the single most
+      common reason a base build stalls or ends in injury.
 
   - week: 2
     total: 13.0

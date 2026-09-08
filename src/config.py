@@ -71,7 +71,46 @@ def load_config(path: str | Path | None = None) -> dict:
     gear = cfg.setdefault("gear", {})
     gear.setdefault("currency", "EUR")
 
+    strava = cfg.setdefault("strava", {})
+    strava.setdefault("redirect_uri", "http://localhost:8501/")
+    strava.setdefault("auto_sync_on_load", True)
+    strava.setdefault("lookback_days", 90)
+
+    _normalize_cross_training(cfg)
+
     return cfg
+
+
+def cross_training(cfg: dict) -> dict:
+    """Display name + protected days for the non-running gym session.
+
+    Internal session kind stays ``climb`` for schedule fingerprints / ICS UIDs;
+    only the label the athlete sees is configurable (Climbing, Gym, Yoga, …).
+    """
+    return dict((cfg.get("constraints") or {}).get("cross_training") or {})
+
+
+def cross_training_name(cfg: dict) -> str:
+    return str(cross_training(cfg).get("name") or "Gym")
+
+
+def cross_training_days(cfg: dict) -> list[str]:
+    days = cross_training(cfg).get("days") or []
+    return [str(d).lower() for d in days]
+
+
+def _normalize_cross_training(cfg: dict) -> None:
+    constraints = cfg.setdefault("constraints", {})
+    xt = dict(constraints.get("cross_training") or {})
+    if not xt.get("days"):
+        xt["days"] = list(constraints.get("climbing_days") or [])
+    if not xt.get("name"):
+        xt["name"] = constraints.get("cross_training_name") or (
+            "Climbing" if constraints.get("climbing_days") else "Gym")
+    xt["days"] = [str(d).lower() for d in xt.get("days") or []]
+    # Keep the legacy key in sync so older templates/comments still make sense.
+    constraints["climbing_days"] = list(xt["days"])
+    constraints["cross_training"] = xt
 
 
 def local_timezone_name() -> str:

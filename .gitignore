@@ -8,4 +8,5 @@ data/training.db
 data/plan_current.json
 data/marathon.ics
 data/overrides.yaml
+data/_strava_tokens.json
 data/_*

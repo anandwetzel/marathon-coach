@@ -1,9 +1,9 @@
-"""Session prescriptions for climbing, strength, and stretching.
+"""Session prescriptions for cross-training, strength, and stretching.
 
 Kept separate from the plan generator so calendar events, the dashboard, and
 the CLI all share one source of truth for what to actually do in the gym.
 
-Working weights are seeded for a ~70 kg climber who is strong but not a
+Working weights are seeded for a ~70 kg athlete who is strong but not a
 powerlifter. Adjust up or down so the last reps of each set are hard but clean;
 peak/taper weeks automatically drop loads to two thirds.
 """
@@ -30,6 +30,31 @@ LOADS = {
 }
 
 
+def cross_training_detail(name: str, *, race_week: bool = False) -> str:
+    """Prescription for the protected non-running session (climb, gym, …)."""
+    label = (name or "Gym").strip() or "Gym"
+    if _is_climbing(label):
+        return climb_detail(race_week=race_week)
+    if race_week:
+        return (
+            f"Optional {label.lower()} only if you are still home.\n"
+            "- keep it easy and short\n"
+            "- no new PRs, no high-injury-risk work\n"
+            "- skip entirely if travelling"
+        )
+    return (
+        f"{label} session after work.\n"
+        "- warm up 10 min\n"
+        "- 45-75 min of your usual training (machines, free weights, classes, "
+        "whatever you actually do)\n"
+        "- leave fresh enough that tomorrow's run is not compromised\n"
+        "- skip anything that leaves you hobbling into the next easy run\n"
+        "\n"
+        "Stretch after (5 min):\n"
+        + _stretch_block("full")
+    )
+
+
 def climb_detail(*, race_week: bool = False) -> str:
     if race_week:
         return (
@@ -49,6 +74,11 @@ def climb_detail(*, race_week: bool = False) -> str:
         "Stretch after (5 min):\n"
         + _stretch_block("climbing")
     )
+
+
+def _is_climbing(name: str) -> bool:
+    low = name.lower()
+    return "climb" in low or "bould" in low
 
 
 def strength_detail(focus: str) -> str:

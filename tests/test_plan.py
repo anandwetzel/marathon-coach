@@ -118,21 +118,41 @@ def test_plan_spans_to_race_day() -> None:
 
 
 def test_no_runs_stacked_onto_climbing_days() -> None:
-    print("\nDay assignment respects free days before climbing days")
+    print("\nDay assignment respects free days before cross-training days")
     cfg = load_config()
     plan = build_plan(cfg)
-    climbing = {"thursday", "saturday"}
+    protected = set(cfg["constraints"]["cross_training"]["days"])
     offenders = []
     for week in plan.weeks:
         used = {s.day for s in week.run_sessions if not s.optional}
         free = {d for d in ("tuesday", "wednesday", "friday") if d not in used}
         clashes = {s.day for s in week.run_sessions
-                   if not s.optional and s.day in climbing}
+                   if not s.optional and s.day in protected}
         if free and clashes:
             offenders.append(week.index)
     check(not offenders,
-          f"no week doubles a run onto a climbing day while a weekday is free "
+          f"no week doubles a run onto a cross-training day while a weekday is free "
           f"(offenders: {offenders})")
+
+
+def test_aerobic_roles_have_distinct_pace_windows() -> None:
+    print("\nLong / medium / easy pace windows differ and stay ≤30s wide")
+    cfg = fresh_cfg()
+    plan = build_plan(cfg)
+    week = next(w for w in plan.weeks if w.run_sessions)
+    by_role = {}
+    for session in week.run_sessions:
+        if session.zone != "easy" or not session.pace_low or not session.pace_high:
+            continue
+        by_role[session.role] = (session.pace_low, session.pace_high)
+        width = abs(session.pace_high - session.pace_low)
+        check(width <= 30.5, f"{session.role} window {width:.0f}s ≤ 30s")
+    if "long" in by_role and "medium" in by_role:
+        # Medium centre should be faster (lower sec/mi) than long centre.
+        long_c = sum(by_role["long"]) / 2
+        med_c = sum(by_role["medium"]) / 2
+        check(med_c < long_c,
+              f"medium centre {med_c:.0f}s faster than long {long_c:.0f}s")
 
 
 def test_strength_never_loads_legs_before_a_long_run() -> None:
@@ -159,6 +179,9 @@ def test_clean_plan_is_left_untouched() -> None:
     print("\nRules engine is a no-op on a clean plan")
     cfg = fresh_cfg()
     plan = build_plan(cfg)
+    # Match the template opening week so the start-volume seed does not
+    # itself reshape an otherwise clean plan.
+    cfg["start"]["current_weekly_miles"] = plan.weeks[0].planned_miles
     result = adapt_plan(cfg, plan, as_of=date(2026, 8, 3))
     check(not result.adaptations,
           f"no adaptations with an empty log "
@@ -172,6 +195,7 @@ def test_cutback_week_does_not_flatten_the_build() -> None:
     print("\nA planned cutback does not lower the ramp anchor")
     cfg = fresh_cfg()
     plan = build_plan(cfg)
+    cfg["start"]["current_weekly_miles"] = plan.weeks[0].planned_miles
     result = adapt_plan(cfg, plan, as_of=date(2026, 8, 3))
     # Base weeks 4, 8, 12 are cutbacks; the build weeks after them must survive.
     for index in (5, 9, 13):
@@ -179,6 +203,51 @@ def test_cutback_week_does_not_flatten_the_build() -> None:
         after = result.plan.weeks[index - 1].planned_miles
         check(after == before,
               f"week {index} still {before:g} mi after the preceding cutback")
+
+
+def test_start_volume_seeds_the_ramp() -> None:
+    print("\nStarting weekly miles reshape early build weeks")
+    cfg = fresh_cfg()
+    cfg["start"]["current_weekly_miles"] = 8.0
+    plan = build_plan(cfg)
+    low = adapt_plan(cfg, plan, as_of=date(2026, 8, 3))
+    check(low.plan.weeks[0].planned_miles <= 8.0 * 1.1 + 1.6,
+          f"low start caps week 1 at {low.plan.weeks[0].planned_miles:g} mi")
+
+    cfg["start"]["current_weekly_miles"] = 18.0
+    high = adapt_plan(cfg, plan, as_of=date(2026, 8, 3))
+    check(high.plan.weeks[0].planned_miles >= 17.0,
+          f"high start lifts week 1 to {high.plan.weeks[0].planned_miles:g} mi")
+
+
+def test_training_paces_adapt_from_logged_runs() -> None:
+    print("\nLogged aerobic runs refresh fitness before the first race")
+    cfg = fresh_cfg()
+    cfg["start"]["current_easy_pace"] = "8:00"
+    cfg["start"]["current_effort"] = "moderate"
+    baseline = metrics.current_fitness(cfg, date(2026, 9, 1))
+    for day, pace in [
+        (date(2026, 8, 20), "9:30"),
+        (date(2026, 8, 22), "9:40"),
+        (date(2026, 8, 24), "9:20"),
+        (date(2026, 8, 26), "9:35"),
+    ]:
+        logbook.log_session(cfg, day, miles=4.0, duration=_duration_for(4.0, pace),
+                            rpe=4)
+    adapted = metrics.current_fitness(cfg, date(2026, 9, 1))
+    check("recent training" in adapted.source, f"source is {adapted.source}")
+    check(adapted.paces["easy"] > baseline.paces["easy"],
+          f"easy pace slowed from {format_duration(baseline.paces['easy'])} "
+          f"to {format_duration(adapted.paces['easy'])}")
+    cfg["start"]["adapt_paces_from_log"] = False
+    locked = metrics.current_fitness(cfg, date(2026, 9, 1))
+    check(locked.source.startswith("baseline"),
+          f"lock falls back to baseline ({locked.source})")
+
+
+def _duration_for(miles: float, pace: str) -> str:
+    from src.athlete import parse_pace, format_duration
+    return format_duration(miles * parse_pace(pace))
 
 
 def test_under_training_pulls_the_plan_down() -> None:
@@ -384,14 +453,25 @@ def test_config_times_survive_yaml_sexagesimal() -> None:
 def test_overrides_do_not_rewrite_config() -> None:
     print("\nDashboard edits go to overrides, not config.yaml")
     import yaml
-    from src.config import PROJECT_ROOT, save_config
+    from src.config import PROJECT_ROOT, save_config, _as_date
 
     config_file = PROJECT_ROOT / "config.yaml"
     before = config_file.read_text()
+    base = yaml.safe_load(before)
 
     cfg = load_config()
     override_path = Path(tempfile.mkdtemp(prefix="marathon-ovr-")) / "ovr.yaml"
     cfg["overrides_path"] = str(override_path)
+    # Start from config.yaml alone so personal data/overrides.yaml is not
+    # re-emitted as part of the delta under test.
+    cfg["athlete"] = copy.deepcopy(base["athlete"])
+    cfg["start"] = copy.deepcopy(base["start"])
+    cfg["start"]["plan_start"] = _as_date(cfg["start"]["plan_start"])
+    cfg["race"] = copy.deepcopy(base["race"])
+    cfg["race"]["date"] = _as_date(cfg["race"]["date"])
+    if cfg["race"].get("registration_deadline"):
+        cfg["race"]["registration_deadline"] = _as_date(
+            cfg["race"]["registration_deadline"])
     cfg["race"]["goal_time"] = "3:55:00"
 
     save_config(cfg)
@@ -442,6 +522,68 @@ def test_schedule_move_persists_across_rebuild():
     check(moved.as_date == target, "rebuilt plan keeps dragged date")
 
 
+def test_strava_csv_distance_units() -> None:
+    print("\nStrava CSV distance auto-detects meters")
+    check(abs(logbook.distance_to_miles(8046.72, "auto") - 5.0) < 0.02,
+          "8046 m → ~5 mi")
+    check(abs(logbook.distance_to_miles(8.05, "auto") - 5.0) < 0.05,
+          "8.05 km → ~5 mi")
+    check(abs(logbook.distance_to_miles(5.0, "mi") - 5.0) < 0.01,
+          "5 mi stays 5")
+    # Guardrail: huge "miles" are meters.
+    check(abs(logbook.distance_to_miles(8190.8, "mi") - 5.09) < 0.05,
+          "8190 as 'mi' still treated as meters")
+    row = {
+        "Activity Date": "Aug 29, 2026, 4:13:40 PM",
+        "Activity Type": "Run",
+        "Activity Name": "Afternoon Run",
+        "Distance": "8190.8",
+        "Moving Time": "2492",
+        "Activity ID": "19968915564",
+    }
+    parsed = logbook._parse_strava_row(row, "auto")
+    check(parsed is not None, "row parses")
+    check(abs(parsed["miles"] - 5.09) < 0.05, f"miles {parsed['miles']}")
+    check(parsed["duration"] == 2492.0, "moving time seconds")
+
+
+def test_strava_activity_mapping() -> None:
+    print("\nStrava API activities map into log sessions")
+    from src import strava as S
+    run = S.activity_to_session({
+        "id": 99,
+        "name": "Easy 5",
+        "sport_type": "Run",
+        "distance": 8046.72,
+        "moving_time": 2700,
+        "start_date_local": "2026-09-01T07:30:00",
+        "perceived_exertion": 4,
+    })
+    check(run is not None, "run maps")
+    check(run["kind"] == logbook.KIND_RUN, "kind is run")
+    check(abs(run["miles"] - 5.0) < 0.02, f"miles {run['miles']}")
+    check(run["duration"] == 2700, "duration seconds")
+    check(run["external_id"] == "strava:99", "external id")
+    check(run["rpe"] == 4, "rpe from perceived_exertion")
+
+    race = S.activity_to_session({
+        "id": 100,
+        "name": "5K",
+        "type": "Run",
+        "workout_type": 1,
+        "distance": 5000,
+        "moving_time": 1500,
+        "start_date_local": "2026-09-02T09:00:00",
+    })
+    check(race["kind"] == logbook.KIND_RACE, "workout_type 1 is race")
+
+    ride = S.activity_to_session({
+        "id": 101, "sport_type": "Ride", "distance": 20000,
+        "moving_time": 3600, "start_date_local": "2026-09-03T09:00:00",
+    })
+    check(ride is None, "rides are skipped")
+
+
 def main() -> int:
     for test in [
         test_vdot_matches_published_tables,
@@ -449,9 +591,12 @@ def main() -> int:
         test_templates_are_ramp_safe,
         test_plan_spans_to_race_day,
         test_no_runs_stacked_onto_climbing_days,
+        test_aerobic_roles_have_distinct_pace_windows,
         test_strength_never_loads_legs_before_a_long_run,
         test_clean_plan_is_left_untouched,
         test_cutback_week_does_not_flatten_the_build,
+        test_start_volume_seeds_the_ramp,
+        test_training_paces_adapt_from_logged_runs,
         test_under_training_pulls_the_plan_down,
         test_gap_tiers,
         test_pain_forces_a_cutback_and_strips_quality,
@@ -467,6 +612,8 @@ def main() -> int:
         test_overrides_do_not_rewrite_config,
         test_baseline_fitness_is_not_optimistic,
         test_schedule_move_persists_across_rebuild,
+        test_strava_csv_distance_units,
+        test_strava_activity_mapping,
     ]:
         test()
 

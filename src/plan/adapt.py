@@ -266,8 +266,12 @@ def _apply_ramp_cap(cfg: dict, plan: Plan, as_of: date,
 
     Past weeks anchor on what was actually run, so a stretch of under-training
     pulls the whole remaining plan down rather than leaving an impossible jump.
+    The athlete's current capacity (logged peak, else start.current_weekly_miles)
+    seeds the window and also lifts early template weeks that sit below where
+    they already are - without using the plan's own later peak as that floor.
     """
     from ..config import effective_increase_cap
+    from ..metrics import recent_peak_weekly
     cap_pct = effective_increase_cap(cfg)
 
     # The anchor is the highest volume recently *sustained*: the peak of a short
@@ -278,7 +282,10 @@ def _apply_ramp_cap(cfg: dict, plan: Plan, as_of: date,
     # sessions - does pull the anchor down, which is correct: that is real
     # detraining, and coming back to the old number is how people get hurt.
     recent: deque[float] = deque(maxlen=ANCHOR_WEEKS)
-    previous: float | None = None
+    capacity = recent_peak_weekly(cfg, as_of)
+    if capacity > 0:
+        recent.append(capacity)
+    previous: float | None = capacity if capacity > 0 else None
     build_streak = 0
 
     for week in plan.weeks:
@@ -306,6 +313,17 @@ def _apply_ramp_cap(cfg: dict, plan: Plan, as_of: date,
                     f"{original:.1f} mi cut to {week.planned_miles:.1f} mi - "
                     f"more than {cap_pct:.0%} above the {anchor:.1f} mi "
                     f"actually behind it."))
+            elif capacity > 0 and week.planned_miles < capacity - 0.5:
+                # Already running more than this template week - hold near
+                # current capacity until the written plan catches up.
+                original = week.planned_miles
+                _scale_week(week, capacity / week.planned_miles, cfg,
+                            allow_increase=True)
+                notes.append(Adaptation(
+                    week.index, RULE_RAMP,
+                    f"{original:.1f} mi lifted to {week.planned_miles:.1f} mi - "
+                    f"holding near your current {capacity:.1f} mi until the plan "
+                    f"catches up."))
 
             build_streak = _next_streak(build_streak, True, week.planned_miles,
                                         previous)
@@ -430,20 +448,29 @@ def _enforce_taper(cfg: dict, plan: Plan, as_of: date,
 
 # --- Helpers ---------------------------------------------------------------
 
-def _scale_week(week: PlannedWeek, factor: float, cfg: dict) -> None:
+def _scale_week(week: PlannedWeek, factor: float, cfg: dict,
+                allow_increase: bool = False) -> None:
     """Resize every run in a week proportionally, leaving races alone.
 
     Scaling everything together keeps the shape of the week intact - the long
     run stays the long run, and no single session silently becomes dominant.
+    Increases are opt-in so legacy cutback callers stay one-way.
     """
-    if factor >= 1.0:
+    if factor >= 1.0 and not allow_increase:
         return
+    if abs(factor - 1.0) < 0.005:
+        return
+    floor = float(cfg["start"].get("min_run_miles") or 0)
     easy_pace = _easy_pace(cfg, week)
     for session in week.run_sessions:
         if session.is_race:
             continue
-        _resize(session, max(1.0, session.miles * factor),
-                session.pace_target or easy_pace)
+        miles = max(1.0, session.miles * factor)
+        # Floor only when holding or lifting volume. Applying it on a ramp cut
+        # would pin a 3 x 4 mi week at 12 mi and defeat a low starting point.
+        if floor and not session.optional and factor >= 1.0:
+            miles = max(miles, floor)
+        _resize(session, miles, session.pace_target or easy_pace)
 
 
 def _resize(session: PlannedSession, miles: float, pace: float) -> None:

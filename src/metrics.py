@@ -13,7 +13,9 @@ from .athlete import (
     MARATHON_MILES,
     baseline_fitness,
     build_fitness,
+    fitness_from_training_pace,
     format_duration,
+    format_pace,
     parse_duration,
 )
 from .plan.generator import Plan
@@ -29,6 +31,25 @@ ENTRY_WARN_DAYS = 120
 # ratios until that baseline exists. Below this much logged history it is
 # withheld rather than shown as a false alarm.
 MIN_HISTORY_DAYS = 21
+
+# Enough recent aerobic runs to trust a median training pace over the seed.
+TRAINING_FITNESS_LOOKBACK_DAYS = 28
+TRAINING_FITNESS_MIN_RUNS = 3
+TRAINING_FITNESS_MIN_MILES = 2.0
+# RPE at or below this is treated as aerobic; harder efforts are skipped when
+# enough easy runs exist so a tempo does not drag the median down.
+TRAINING_FITNESS_EASY_RPE = 6
+
+
+def _effort_from_rpe(rpe: float | None, fallback: str) -> str:
+    if rpe is None or (isinstance(rpe, float) and pd.isna(rpe)):
+        return fallback
+    value = float(rpe)
+    if value <= 4:
+        return "easy"
+    if value <= 6:
+        return "moderate"
+    return "hard"
 
 
 @dataclass
@@ -152,12 +173,100 @@ def pain_streak(cfg: dict) -> int:
     return streak
 
 
+def recent_training_runs(cfg: dict, as_of: date | None = None) -> pd.DataFrame:
+    """Aerobic runs used to refresh training paces from the log."""
+    as_of = as_of or date.today()
+    start = as_of - timedelta(days=TRAINING_FITNESS_LOOKBACK_DAYS - 1)
+    df = logbook.load_sessions(cfg, start=start, end=as_of)
+    if df.empty:
+        return pd.DataFrame(columns=["date", "pace", "miles", "rpe"])
+    runs = df[
+        (df["kind"] == logbook.KIND_RUN)
+        & df["pace"].notna()
+        & (df["miles"] >= TRAINING_FITNESS_MIN_MILES)
+    ].copy()
+    if runs.empty:
+        return runs
+    easy = runs[
+        runs["rpe"].isna() | (runs["rpe"] <= TRAINING_FITNESS_EASY_RPE)
+    ]
+    if len(easy) >= TRAINING_FITNESS_MIN_RUNS:
+        return easy.sort_values("date")
+    return runs.sort_values("date")
+
+
+def training_fitness_from_log(cfg: dict, as_of: date | None = None,
+                              peak_weekly_miles: float | None = None
+                              ) -> Fitness | None:
+    """Estimate fitness from recent logged training paces.
+
+    Returns None until enough aerobic runs exist. Disabled when
+    ``start.adapt_paces_from_log`` is false so the seed stays locked.
+    """
+    if not cfg.get("start", {}).get("adapt_paces_from_log", True):
+        return None
+    as_of = as_of or date.today()
+    runs = recent_training_runs(cfg, as_of)
+    if len(runs) < TRAINING_FITNESS_MIN_RUNS:
+        return None
+
+    pace = float(runs["pace"].median())
+    miles = float(runs["miles"].median())
+    rpe_median = (
+        float(runs["rpe"].dropna().median())
+        if runs["rpe"].notna().any() else None
+    )
+    fallback = str(cfg["start"].get("current_effort", "moderate"))
+    effort = _effort_from_rpe(rpe_median, fallback)
+    peak = peak_weekly_miles if peak_weekly_miles is not None else recent_peak_weekly(
+        cfg, as_of)
+    return fitness_from_training_pace(
+        pace,
+        effort,
+        peak,
+        source=(
+            f"recent training: median {format_pace(pace)} ({effort}) "
+            f"over {len(runs)} runs"
+        ),
+        representative_miles=miles,
+    )
+
+
+def log_start_snapshot(cfg: dict, as_of: date | None = None) -> dict | None:
+    """Suggested start fields from the log, for Settings display / apply."""
+    as_of = as_of or date.today()
+    runs = recent_training_runs(cfg, as_of)
+    peak = recent_peak_weekly(cfg, as_of)
+    weekly = weekly_actual(cfg)
+    recent_weeks = weekly[weekly["week_start"] >= as_of - timedelta(weeks=4)]
+    if runs.empty and recent_weeks.empty:
+        return None
+
+    snapshot: dict = {
+        "current_weekly_miles": round(peak, 1),
+    }
+    if len(runs) >= TRAINING_FITNESS_MIN_RUNS:
+        pace = float(runs["pace"].median())
+        snapshot["current_easy_pace"] = format_duration(pace)
+        snapshot["current_long_run_miles"] = round(float(runs["miles"].max()), 1)
+        if runs["rpe"].notna().any():
+            snapshot["current_effort"] = _effort_from_rpe(
+                float(runs["rpe"].dropna().median()),
+                str(cfg["start"].get("current_effort", "moderate")),
+            )
+        snapshot["run_count"] = len(runs)
+    if not recent_weeks.empty:
+        snapshot["current_runs_per_week"] = int(round(
+            float(recent_weeks["runs"].mean())))
+    return snapshot
+
+
 def current_fitness(cfg: dict, as_of: date | None = None) -> Fitness:
     """Best available fitness estimate.
 
-    A logged race is hard evidence and always wins. Without one, fall back to
-    the self-reported starting point, but keep the volume figure current so the
-    projection improves as the base grows even before the first tune-up.
+    Priority: logged race (hard evidence) → recent training paces from the
+    log → self-reported starting point. Volume always tracks the recent peak
+    so projections improve as the base grows even before the first tune-up.
     """
     as_of = as_of or date.today()
     peak = recent_peak_weekly(cfg, as_of)
@@ -170,6 +279,10 @@ def current_fitness(cfg: dict, as_of: date | None = None) -> Fitness:
             seconds=race["duration_s"],
             peak_weekly_miles=peak,
         )
+
+    from_log = training_fitness_from_log(cfg, as_of, peak_weekly_miles=peak)
+    if from_log:
+        return from_log
 
     fitness = baseline_fitness(cfg)
     fitness.peak_weekly_miles = peak

@@ -71,7 +71,16 @@ def main(argv: list[str] | None = None) -> int:
 
     p_strava = sub.add_parser("import-strava", help="import activities.csv")
     p_strava.add_argument("path")
-    p_strava.add_argument("--unit", default="km", choices=["km", "mi"])
+    p_strava.add_argument("--unit", default="auto",
+                          choices=["auto", "m", "km", "mi"],
+                          help="distance unit in the file (auto detects meters)")
+
+    p_sync = sub.add_parser(
+        "sync-strava",
+        help="pull recent activities from a linked Strava account")
+    p_sync.add_argument(
+        "--days", type=int, default=None,
+        help="lookback on first sync (default: config strava.lookback_days)")
 
     p_gpx = sub.add_parser("import-gpx", help="import a .gpx track")
     p_gpx.add_argument("path")
@@ -84,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
         "paces": cmd_paces, "status": cmd_status, "adapt": cmd_adapt,
         "validate": cmd_validate, "log": cmd_log, "trip": cmd_trip,
         "gear": cmd_gear, "import-strava": cmd_import_strava,
-        "import-gpx": cmd_import_gpx,
+        "sync-strava": cmd_sync_strava, "import-gpx": cmd_import_gpx,
     }
     return handlers[args.command](cfg, args) or 0
 
@@ -294,6 +303,28 @@ def cmd_gear(cfg: dict, args) -> int:
 def cmd_import_strava(cfg: dict, args) -> int:
     imported, skipped = logbook.import_strava_csv(cfg, args.path, args.unit)
     print(f"Imported {imported} activities, skipped {skipped}.")
+    return 0
+
+
+def cmd_sync_strava(cfg: dict, args) -> int:
+    from . import strava
+    if not strava.is_configured(cfg):
+        print("Set strava.client_id and strava.client_secret first "
+              "(Log tab in the dashboard, or overrides.yaml).")
+        return 1
+    if not strava.is_connected(cfg):
+        print("Not connected. Open the dashboard Log tab and click Connect Strava.")
+        print(f"Authorize URL:\n  {strava.authorize_url(cfg)}")
+        return 1
+    result = strava.sync_activities(cfg, lookback_days=args.days)
+    print(f"Strava sync: {result}")
+    if result.imported:
+        plan = _fresh_plan(cfg)
+        adapted = adapt_plan(cfg, plan)
+        schedulemod.apply_schedule_moves(adapted.plan, cfg)
+        save(adapted.plan, cfg["plan_path"])
+        calendar_feed.write(adapted.plan, cfg)
+        print(f"Plan re-adapted ({len(adapted.adaptations)} change(s)).")
     return 0
 
 

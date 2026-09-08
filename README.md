@@ -1,11 +1,14 @@
 # Marathon Coach
 
-Adaptive training planner for the **PEAK Lake Garda 42, Sunday 11 April 2027** —
-Limone sul Garda to Malcesine, +180 m / −160 m, 09:00 start.
+Local adaptive marathon training planner. It builds a multi-week plan from YAML
+templates and coaching rules, re-plans when you miss sessions or travel, tracks
+whether your goal is supported by logged fitness, and publishes workouts as an
+Apple Calendar–subscribable `.ics` feed.
 
-Generates a 36-week plan from coaching rules, re-plans automatically when sessions
-are missed or a trip comes up, tracks whether the goal pace is actually supported
-by logged fitness, and publishes workouts to Apple Calendar as a subscribable feed.
+Location, race, starting fitness, cross-training days, and gear currency are all
+config — copy [`config.example.yaml`](config.example.yaml) or edit Settings in
+the dashboard. Personal overrides land in `data/overrides.yaml` (gitignored) so
+`config.yaml` stays shareable.
 
 ## Setup
 
@@ -18,9 +21,13 @@ pip install -e .
 
 Requires Python 3.10+.
 
+Point `config.yaml` (or the example file) at your race date, location
+(`lat` / `lon` / `timezone`), starting mileage and pace, and `ics_path`. Use
+`timezone: local` to pick up the machine timezone.
+
 ## Usage
 
-**Generate the plan** (writes `data/plan_current.json` and `data/marathon.ics`):
+**Generate the plan** (writes `plan_path` and `ics_path` from config):
 
 ```bash
 python -m src.cli generate
@@ -48,139 +55,144 @@ python -m src.cli log --date 2026-08-09 --miles 6 --time 57:00 --rpe 6 --pain 1 
 **Re-plan after a change:**
 
 ```bash
-python -m src.cli adapt             # apply the rules engine to remaining weeks
-python -m src.cli trip --name "Lisbon" --start 2026-10-16 --end 2026-10-19 \
+python -m src.cli adapt
+python -m src.cli trip --name "Long weekend" --start 2026-10-16 --end 2026-10-19 \
     --runs 1 --max-minutes 45
 ```
 
-**Gear:**
+**Gear checklist** (phase-gated; currency from `gear.currency`):
 
 ```bash
-python -m src.cli gear              # phase-gated checklist, EUR, Dutch retailers
+python -m src.cli gear
 python -m src.cli gear --due-now
 ```
 
-**Dashboard** (everything above, plus charts):
+**Dashboard** (schedule, log, progress, settings):
 
 ```bash
 streamlit run app.py
 ```
 
+**Strava** (optional — API access may require a Strava subscription):
+
+1. Create an API app at [strava.com/settings/api](https://www.strava.com/settings/api).
+2. Set **Authorization Callback Domain** to `localhost`.
+3. In **Log**, paste Client ID + Client Secret → **Connect Strava** → sync.
+
+```bash
+python -m src.cli sync-strava
+```
+
+CSV import works without a subscription; use distance unit **Auto** (values ≥100
+are treated as meters). OAuth tokens live in `data/_strava_tokens.json` (gitignored).
+
 ## Calendar
 
-`generate` / `adapt` write `~/Dropbox/Marathon/marathon.ics` (a real file, not a
-symlink — Dropbox does not sync symlink targets reliably).
+`generate` / `adapt` write a real `.ics` file at `ics_path` (not a symlink —
+cloud sync tools often fail to follow symlink targets).
 
-To subscribe in Apple Calendar:
+A common setup is Dropbox + Apple Calendar:
 
-1. Wait for Dropbox to finish syncing (green check on the file).
-2. Right-click the file → **Share** → set access to **Anyone with the link** →
-   **Copy link**.
-3. Rewrite the URL: change `www.dropbox.com` → `dl.dropboxusercontent.com`, and
-   change `dl=0` → `raw=1`. Example:
-
-   ```
-   https://dl.dropboxusercontent.com/scl/fi/…/marathon.ics?rlkey=…&raw=1
-   ```
-
+1. Set `ics_path` to something like `~/Dropbox/Marathon/marathon.ics`.
+2. Wait for sync, then share the file with a link.
+3. Rewrite the URL: `www.dropbox.com` → `dl.dropboxusercontent.com`, and
+   `dl=0` → `raw=1`.
 4. Calendar → **File → New Calendar Subscription…** → paste that URL.
-5. Set **Location** to **iCloud**, auto-refresh daily, then OK.
+5. Prefer **iCloud**, daily refresh.
 
-Do not use a Finder symlink into Dropbox. Re-running `generate` overwrites the
-real file; Calendar picks up changes on the next refresh.
+Re-running `generate` overwrites the file; Calendar picks up changes on refresh.
+You can also point `ics_path` at `data/marathon.ics` and download it from the
+dashboard Settings page.
 
 ## How the plan is built
 
-Two phases across 36 weeks:
+Default templates are an aerobic **base** phase then a **marathon** block
+(Higdon Intermediate 1–style in `plans/higdon_int1.yaml`), sized to land the
+final Sunday on `race.date`. Exact week counts and peak volume depend on
+`start.plan_start` and the templates.
 
-| Phase | Dates | Weeks | Volume |
-|---|---|---|---|
-| Base | 3 Aug – 6 Dec 2026 | 18 | 12 → ~28 mpw |
-| Marathon block | 7 Dec 2026 – 11 Apr 2027 | 18 | ~24 → 40 mpw peak, 3-week taper |
+Weekly shape is driven by config: target run days, protected
+`constraints.cross_training` days (climbing, gym, yoga, …) with optional
+strength paired to them, and a long run on Saturday or Sunday. The generator
+reflows the week around the long-run day and avoids hard quality the day after
+heavy lifting.
 
-Base grows the aerobic engine and adds a 4th run day. The marathon block follows a
-Higdon Intermediate 1 structure (`plans/higdon_int1.yaml`), with three 20-mile long
-runs and marathon-pace work layered in.
-
-Weekly shape: 4 runs, climbing Thursday + Saturday with strength after, long run on
-Saturday or Sunday. The generator reflows the week around whichever long-run day is
-chosen and never puts quality the day after heavy lifting.
+Starting weekly miles and typical pace (plus logged volume and aerobic paces)
+reshape early weeks and training zones on rebuild. A logged race still wins for
+VDOT calibration.
 
 ## Goal pace is an output, not an input
 
-`race.goal_time` in `config.yaml` records the ambition (3:49, an 8:44/mi pace).
-`race.must_beat` records what actually defines success (sub-4, 9:09/mi).
+`race.goal_time` is the ambition; `race.must_beat` is the success line. Neither
+is baked into training paces.
 
-The tool estimates fitness independently, via VDOT from logged runs and the two
-timed trials (15K in November, half in March), discounted by a volume penalty
-because neither VDOT nor Riegel account for a thin aerobic base. There are no
-organised tune-up races on the plan — log each trial as `kind=race` so paces
-recalibrate. `python -m src.cli status` shows the projected finish next to the
-goal so the target can be adjusted on evidence rather than hope.
+Fitness is estimated from evidence: seed start pace + effort, then recent logged
+easy runs, then a logged race when you have one — discounted by a volume penalty
+while the aerobic base is still thin. Tune-up trials on the plan should be logged
+as `kind=race` so zones recalibrate. `python -m src.cli status` shows projected
+finish next to the goal.
 
-Self-reported training pace is read as a **moderate** effort by default
-(`start.current_effort`), not an easy one — at low volume the "normal" pace is
-usually moderate, and reading it as easy inflates every derived pace.
+Self-reported training pace defaults to **moderate** effort
+(`start.current_effort`), not easy — at low volume a “normal” pace is usually
+moderate, and reading it as easy inflates every derived zone.
 
 ## Darkness is a first-class constraint
 
-Sessions run after work in Amstelveen. The Amsterdamse Bos is unlit, and sunset
-falls below 17:00 from late October to mid-February — essentially the whole
-marathon block. `src/plan/daylight.py` computes sunset per session and tags each
-one `lit`, `marginal`, or `dark`, which drives route suggestions, the headlamp
-purchase trigger in the gear module, and a preference for scheduling long runs in
-daylight on weekends.
+Weekday sessions often land after work. `src/plan/daylight.py` computes sunset
+for `location.lat` / `lon` / `timezone` and tags each session `lit`, `marginal`,
+or `dark`. That drives route notes, gear triggers (e.g. headlamp), and a
+preference for long runs in weekend daylight.
 
-Every dark session also carries a `fallback`: the specific lit route to use
-instead of the Bos, and permission to swap the run for climbing if it is icy.
-There is deliberately no treadmill in the default setup — a Dutch winter has few
-genuinely unrunnable days, and darkness is solved far more cheaply by a headlamp
-than by a gym membership. Set `constraints.treadmill_access: true` if that
-changes and the fallbacks rewrite themselves.
+Dark sessions carry a `fallback` from `constraints.lit_routes` (edit these for
+wherever you train). Set `constraints.treadmill_access: true` if indoor running
+should replace “find a lit path” as the bad-weather answer.
 
 ## The rules engine
 
 `src/plan/adapt.py`, all deterministic:
 
-- **Ramp cap** — weekly volume rises at most 10% (7% if `athlete.injury_history` is
-  non-empty); max 3 build weeks before a cutback to 78%. The comparison is against
-  the highest volume in the previous three weeks, so a planned one-week cutback
-  does not flatten the build after it, but a longer interruption does pull the
-  ceiling down — because that interruption is real detraining.
-- **Long run cap** — never more than 35% of weekly volume, hard ceiling 20 miles.
-- **Missed session** — never stacked. Dropped bottom-up: easy first, then quality,
-  long run last.
-- **Return from a gap** — 7-13 days repeats the last completed week; 14-27 days
-  drops to 70% and rebuilds; 28+ days re-enters base.
-- **Trip mode** — regenerates the week as maintenance within stated availability,
-  keeping the long run before anything else, then re-ramps under the cap on
-  return. The 2.5-week Christmas trip in `config.yaml` is the big one: it costs
-  roughly two miles off the eventual peak but leaves the three 19-20 mile long
-  runs intact, which is the part that actually decides the race.
-- **Injury guard** — flags ACWR (7-day load ÷ 28-day average) above 1.5, and forces
-  a cutback after 3 consecutive runs logging pain at or above threshold.
-- **Taper** — final 3 weeks at 80/60/40% volume, intensity preserved.
+- **Ramp cap** — weekly volume rises at most 10% (7% if `athlete.injury_history`
+  is non-empty); max 3 build weeks before a cutback. Anchored on recent
+  *observed* volume (and your current weekly miles), so under-training or a long
+  gap pulls later weeks down; starting ahead of the template holds near current
+  capacity until the written plan catches up.
+- **Long run cap** — soft fraction of the week plus a hard mile ceiling from
+  `rules`.
+- **Missed session** — never stacked onto a protected day when another weekday
+  is free. Dropped bottom-up: easy first, quality next, long run last.
+- **Return from a gap** — short gaps repeat the last week; longer gaps cut volume
+  and rebuild under the ramp.
+- **Trip mode** — regenerates weeks inside stated availability, protecting the
+  long run when possible, then re-ramps on return.
+- **Injury guard** — flags high ACWR; forces a cutback after repeated pain at or
+  above threshold.
+- **Taper** — final weeks step volume down while intensity is preserved.
 
 ## Configuration
 
-Everything lives in [`config.yaml`](config.yaml). The fields worth revisiting:
+Primary file: [`config.yaml`](config.yaml). For a friend or a fresh machine,
+start from [`config.example.yaml`](config.example.yaml). Fields worth setting
+early:
 
 | Field | Meaning |
 |---|---|
-| `start.current_effort` | How hard the reported pace really is; drives all zones |
-| `athlete.injury_history` | Any entry tightens the ramp cap automatically |
-| `constraints.climbing_days` | Protected; the generator never moves these |
+| `location.*` | Name, lat/lon, timezone (`local` = laptop zone) |
+| `race.*` | Goal race, date, goal / must-beat times |
+| `start.plan_start` | Monday the plan begins (final Sunday should be race day) |
+| `start.current_weekly_miles` / `current_easy_pace` / `current_effort` | Seed fitness and volume |
+| `start.adapt_paces_from_log` | Refresh VDOT from recent aerobic runs on rebuild |
+| `constraints.cross_training` | Protected non-running days + display name |
+| `constraints.lit_routes` | Where to run when it’s dark |
 | `constraints.long_run_days` | Which days a long run may land on |
-| `trips` | Known travel, so the plan is right the first time |
-| `gear.budget_eur` | Caps the gear recommendations |
+| `trips` | Known travel so the plan is right the first time |
+| `gear.currency` | Display currency for gear prices |
+| `ics_path` | Where the calendar feed is written |
 
-`config.yaml` is documentation as much as configuration, so the app never
-rewrites it. Edits made in the dashboard or via `trip` are written as a delta to
-`data/overrides.yaml` and merged over the top at load time. Delete that file to
-revert to the committed defaults.
+The dashboard never rewrites `config.yaml`. Edits go to `data/overrides.yaml` and
+merge on load. Delete that file to revert to committed defaults.
 
-Keep clock values quoted. YAML reads an unquoted `17:30` as the integer 1050,
-which is why times are normalised on load rather than trusted.
+Keep clock values quoted. YAML reads an unquoted `17:30` as the integer 1050;
+times are normalised on load.
 
 ## Tests
 
@@ -188,27 +200,29 @@ which is why times are normalised on load rather than trusted.
 python -m tests.test_plan
 ```
 
-51 checks, no test framework needed. Each one corresponds to a bug found while
-building the tool — the VDOT model is verified against Daniels' published
-tables, sunset against known Amsterdam times, and the rules engine against the
-invariant that matters most: **a clean plan must come out unchanged.**
+No external test framework. Checks cover VDOT against Daniels’ tables, daylight
+math, ramp/gap/pain/trip rules, adaptive start volume, and CSV distance units.
+A clean plan with matching start mileage must come out of the rules engine
+unchanged.
 
 ## Layout
 
 ```
 app.py                  Streamlit dashboard
-config.yaml             athlete profile, race, constraints, rules
+config.yaml             athlete / race / constraints (local defaults)
+config.example.yaml     portable starter for sharing
 plans/                  coach plan templates as data
-data/training.db        logged sessions
-data/plan_current.json  materialized plan
-data/marathon.ics       calendar feed
+data/                   db, plan JSON, overrides, tokens (mostly gitignored)
 src/athlete.py          pace zones, VDOT, fitness estimation
 src/plan/templates.py   phase and microcycle definitions
 src/plan/generator.py   materialize the plan
 src/plan/adapt.py       rules engine
 src/plan/daylight.py    sunset calculation and session tagging
-src/log.py              session logging, Strava CSV import
+src/plan/schedule.py    interactive calendar moves
+src/log.py              session logging, Strava CSV / GPX import
+src/strava.py           Strava OAuth + activity sync
 src/metrics.py          volume, ACWR, pace trend, projected finish
 src/calendar_feed.py    .ics generation
 src/gear.py             phase-gated gear recommendations
+src/workouts.py         cross-training, strength, stretch prescriptions
 ```

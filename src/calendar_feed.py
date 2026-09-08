@@ -17,6 +17,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from .athlete import format_duration, format_pace, format_pace_km
+from .config import cross_training_name
 from .plan.daylight import DARK, MARGINAL
 from .plan.generator import Plan, PlannedSession, PlannedWeek
 from .plan.schedule import assign_fingerprints, calendar_uid
@@ -74,7 +75,7 @@ def _event(session: PlannedSession, week: PlannedWeek, plan: Plan,
     # Fingerprint-based UID stays stable when a session is dragged to a new day,
     # so Apple Calendar updates the event instead of leaving a stale copy.
     uid = calendar_uid(fingerprint)
-    summary = _summary(session, week)
+    summary = _summary(session, week, cfg)
 
     lines = [
         "BEGIN:VEVENT",
@@ -99,9 +100,9 @@ def _event(session: PlannedSession, week: PlannedWeek, plan: Plan,
     return lines
 
 
-def _summary(session: PlannedSession, week: PlannedWeek) -> str:
+def _summary(session: PlannedSession, week: PlannedWeek, cfg: dict) -> str:
     if session.kind == "climb":
-        return "Climbing"
+        return cross_training_name(cfg)
     if session.kind == "strength":
         return f"Strength: {session.strength_focus}"
 
@@ -116,9 +117,9 @@ def _summary(session: PlannedSession, week: PlannedWeek) -> str:
 def _description(session: PlannedSession, week: PlannedWeek, plan: Plan) -> str:
     """Event body tailored to the session type.
 
-    Climbing and strength get only their workout prescription. Running events
-    keep pace, daylight, and week-level coaching notes that actually apply to
-    running - not gym work.
+    Cross-training and strength get only their workout prescription. Running
+    events keep pace, daylight, and week-level coaching notes that actually
+    apply to running - not gym work.
     """
     parts: list[str] = []
     if session.detail:
