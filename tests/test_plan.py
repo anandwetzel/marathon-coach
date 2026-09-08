@@ -584,6 +584,123 @@ def test_strava_activity_mapping() -> None:
     check(ride is None, "rides are skipped")
 
 
+def test_csv_reimport_skips_duplicates() -> None:
+    print("\nCSV reimport is idempotent (no id churn)")
+    import tempfile
+    from pathlib import Path
+    cfg = fresh_cfg()
+    csv_path = Path(tempfile.mkdtemp()) / "activities.csv"
+    csv_path.write_text(
+        "Activity ID,Activity Date,Activity Name,Activity Type,Distance,Moving Time\n"
+        "42,\"Sep 1, 2026, 7:00:00 AM\",Morning Run,Run,8046.72,2700\n",
+        encoding="utf-8",
+    )
+    first_i, first_s = logbook.import_strava_csv(cfg, csv_path, "auto")
+    check(first_i == 1 and first_s == 0, f"first import {first_i}/{first_s}")
+    before = logbook.load_sessions(cfg)
+    sid = int(before.iloc[0]["id"])
+    miles = float(before.iloc[0]["miles"])
+    second_i, second_s = logbook.import_strava_csv(cfg, csv_path, "auto")
+    check(second_i == 0 and second_s == 1, f"second import {second_i}/{second_s}")
+    after = logbook.load_sessions(cfg)
+    check(len(after) == 1, "still one session")
+    check(int(after.iloc[0]["id"]) == sid, "sqlite id preserved")
+    check(abs(float(after.iloc[0]["miles"]) - miles) < 0.01, "miles unchanged")
+
+
+def test_distance_header_hints() -> None:
+    print("\nDistance column headers override auto unit")
+    mi_row = {
+        "Activity Date": "Sep 1, 2026, 7:00:00 AM",
+        "Activity Type": "Run",
+        "Activity Name": "Run",
+        "Distance (mi)": "5.0",
+        "Moving Time": "2700",
+        "Activity ID": "1",
+    }
+    parsed = logbook._parse_strava_row(mi_row, "auto")
+    check(abs(parsed["miles"] - 5.0) < 0.01, f"Distance (mi) → {parsed['miles']}")
+
+
+def test_volume_penalty_breakpoints() -> None:
+    print("\nVolume penalty endpoints")
+    from src.athlete import volume_penalty, MAX_VOLUME_PENALTY
+    check(volume_penalty(40) == 1.0, "full volume unpenalized")
+    check(abs(volume_penalty(10) - (1.0 + MAX_VOLUME_PENALTY)) < 1e-9,
+          "low volume at max penalty")
+    mid = volume_penalty(25)
+    check(1.0 < mid < 1.0 + MAX_VOLUME_PENALTY, f"mid penalty {mid}")
+
+
+def test_best_race_prefers_faster_performance() -> None:
+    print("\nbest_race picks highest VDOT, not merely newest")
+    cfg = fresh_cfg()
+    logbook.log_session(cfg, date(2026, 8, 1), kind=logbook.KIND_RACE,
+                        miles=3.1, duration="18:00", label="fast 5k")
+    logbook.log_session(cfg, date(2026, 9, 1), kind=logbook.KIND_RACE,
+                        miles=3.1, duration="25:00", label="slow 5k")
+    race = logbook.best_race(cfg)
+    check(race["label"] == "fast 5k", f"best is {race['label']}")
+    recent = logbook.most_recent_race(cfg)
+    check(recent["label"] == "slow 5k", f"recent is {recent['label']}")
+
+
+def test_post_race_cuts_following_long_run() -> None:
+    print("\nRecent half+ race trims the next long run")
+    cfg = fresh_cfg()
+    plan = build_plan(cfg)
+    # Put a half in week 10; following week should lose POST_RACE_LONG_RUN_CUT.
+    week = plan.weeks[9]
+    race_day = week.start_date + timedelta(days=6)
+    logbook.log_session(cfg, race_day, kind=logbook.KIND_RACE,
+                        miles=13.1, duration="1:50:00", label="half")
+    before = next(s.miles for s in plan.weeks[10].run_sessions if s.role == "long")
+    result = adapt_plan(cfg, plan, as_of=race_day)
+    after = next(s.miles for s in result.plan.weeks[10].run_sessions
+                 if s.role == "long")
+    check(after < before, f"long run {before:g} → {after:g}")
+    check(any(a.rule == "post-race" for a in result.adaptations),
+          "post-race rule fired")
+
+
+def test_schedule_move_survives_ramp_rescale() -> None:
+    print("\nSchedule fingerprint survives volume rescale")
+    cfg = fresh_cfg()
+    cfg["start"]["current_weekly_miles"] = 8.0
+    plan = build_plan(cfg)
+    week = plan.weeks[0]
+    run = next(s for s in week.sessions if s.miles > 0 and s.role != "long")
+    from src.plan import schedule as S
+    fps = S.assign_fingerprints(plan)
+    fingerprint = next(fp for fp, s in fps.items() if s is run)
+    target = week.start_date + timedelta(days=2)
+    if run.as_date == target:
+        target = week.start_date + timedelta(days=3)
+    assert S.move_session(plan, fingerprint, target, cfg)
+
+    # Real path: regenerate from templates, adapt (may rescale), re-apply moves.
+    rebuilt = build_plan(cfg)
+    adapted = adapt_plan(cfg, rebuilt, as_of=date(2026, 8, 3)).plan
+    applied = S.apply_schedule_moves(adapted, cfg)
+    check(applied >= 1, f"move re-applied after ramp ({applied})")
+    moved = S.assign_fingerprints(adapted)[fingerprint]
+    check(moved.as_date == target, "dragged date kept after rescale")
+    # Confirm volume actually moved (seed 8 mi should cut week 1).
+    check(adapted.weeks[0].planned_miles < plan.weeks[0].planned_miles,
+          "week 1 was rescaled")
+
+
+def test_repair_meter_distances() -> None:
+    print("\nrepair_meter_distances rewrites meter-as-miles rows")
+    cfg = fresh_cfg()
+    logbook.log_session(cfg, date(2026, 9, 1), miles=8046.72, duration="45:00",
+                        source="strava")
+    n = logbook.repair_meter_distances(cfg)
+    check(n == 1, f"repaired {n}")
+    row = logbook.load_sessions(cfg).iloc[0]
+    check(abs(float(row["miles"]) - 5.0) < 0.05, f"miles now {row['miles']}")
+
+
 def main() -> int:
     for test in [
         test_vdot_matches_published_tables,
@@ -614,6 +731,13 @@ def main() -> int:
         test_schedule_move_persists_across_rebuild,
         test_strava_csv_distance_units,
         test_strava_activity_mapping,
+        test_csv_reimport_skips_duplicates,
+        test_distance_header_hints,
+        test_volume_penalty_breakpoints,
+        test_best_race_prefers_faster_performance,
+        test_post_race_cuts_following_long_run,
+        test_schedule_move_survives_ramp_rescale,
+        test_repair_meter_distances,
     ]:
         test()
 

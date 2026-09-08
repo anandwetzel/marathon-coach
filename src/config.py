@@ -10,7 +10,6 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _PATH_KEYS = ("db_path", "plan_path", "ics_path", "plans_dir", "overrides_path")
 
 DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
-DAY_INDEX = {name: i for i, name in enumerate(DAYS)}
 
 # Values that must be clock strings. YAML reads an unquoted "17:30" as the
 # integer 1050 (sexagesimal), so these are normalised on the way in rather than
@@ -128,10 +127,6 @@ def currency_code(cfg: dict) -> str:
     return str((cfg.get("gear") or {}).get("currency") or "EUR").upper()
 
 
-def money(cfg: dict, amount: float) -> str:
-    return f"{currency_code(cfg)} {amount:.0f}"
-
-
 def save_config(cfg: dict, path: str | Path | None = None) -> Path:
     """Persist whatever differs from config.yaml into the overrides file.
 
@@ -177,11 +172,6 @@ def effective_increase_cap(cfg: dict) -> float:
     if rules.get("injury_caution"):
         return float(rules["injury_caution_increase_pct"])
     return float(rules["max_weekly_increase_pct"])
-
-
-def parse_hhmm(value) -> time:
-    hh, mm = _as_time_string(value).split(":")[:2]
-    return time(int(hh), int(mm))
 
 
 # --- Internals -------------------------------------------------------------

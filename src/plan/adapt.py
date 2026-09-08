@@ -15,7 +15,7 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from ..athlete import format_duration, parse_pace
+from ..athlete import parse_pace
 from .. import log as logbook
 from .generator import Plan, PlannedSession, PlannedWeek
 from .templates import DROP_ORDER
@@ -34,8 +34,9 @@ ANCHOR_WEEKS = 3
 # After downscaling, never let one session carry more than this share of a week.
 # Higdon-style plans legitimately run close to half, so this is a safety net for
 # rescaled weeks rather than a target - it exists to stop a shrunken week from
-# leaving an untouched long run as almost all of its volume.
-MAX_LONG_RUN_SHARE = 0.55
+# leaving an untouched long run as almost all of its volume. Prefer
+# rules.long_run_hard_share in config when set.
+DEFAULT_LONG_RUN_HARD_SHARE = 0.55
 
 # A tune-up half marathon costs about this much of the following long run.
 POST_RACE_LONG_RUN_CUT = 2.0
@@ -234,8 +235,8 @@ def _apply_pain(cfg: dict, plan: Plan, as_of: date,
 def _apply_post_race(cfg: dict, plan: Plan, as_of: date,
                      notes: list[Adaptation]) -> None:
     """A raced half marathon costs more recovery than the plan assumes."""
-    race = logbook.best_race(cfg)
-    if not race or race["miles"] < POST_RACE_MIN_MILES:
+    race = logbook.most_recent_race(cfg, min_miles=POST_RACE_MIN_MILES)
+    if not race:
         return
     race_date = race["date"]
     if isinstance(race_date, str):
@@ -407,15 +408,17 @@ def _enforce_long_run_caps(cfg: dict, plan: Plan, as_of: date,
         # Optional recovery runs count here, since taking them is recommended.
         total = week.planned_miles + sum(
             s.miles for s in week.run_sessions if s.optional)
-        if total > 0 and long_run.miles / total > MAX_LONG_RUN_SHARE:
-            allowed = round(total * MAX_LONG_RUN_SHARE, 1)
+        hard_share = float(cfg["rules"].get(
+            "long_run_hard_share", DEFAULT_LONG_RUN_HARD_SHARE))
+        if total > 0 and long_run.miles / total > hard_share:
+            allowed = round(total * hard_share, 1)
             if allowed >= 4.0:
                 _resize(long_run, allowed,
                         long_run.pace_target or _easy_pace(cfg, week))
                 notes.append(Adaptation(
                     week.index, RULE_LONG_CAP,
-                    f"Long run trimmed to {allowed:g} mi so it stays under half "
-                    f"the week's volume."))
+                    f"Long run trimmed to {allowed:g} mi so it stays under "
+                    f"{hard_share:.0%} of the week's volume."))
 
 
 def _enforce_taper(cfg: dict, plan: Plan, as_of: date,

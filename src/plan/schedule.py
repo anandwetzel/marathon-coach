@@ -45,10 +45,11 @@ def _origin(week: PlannedWeek, session: PlannedSession) -> int:
 
 
 def _base_key(origin: int, session: PlannedSession) -> str:
+    # Miles are omitted so fingerprints survive ramp/pain rescales; occurrence
+    # index distinguishes multiple same-role sessions in a week.
     return (
         f"{origin}|{session.role}|{session.kind}|"
-        f"{session.miles:g}|{session.strength_focus}|"
-        f"{int(session.optional)}"
+        f"{session.strength_focus}|{int(session.optional)}"
     )
 
 

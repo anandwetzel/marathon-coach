@@ -10,7 +10,6 @@ import pandas as pd
 from . import log as logbook
 from .athlete import (
     Fitness,
-    MARATHON_MILES,
     baseline_fitness,
     build_fitness,
     fitness_from_training_pace,
@@ -67,10 +66,6 @@ class Status:
     goal_seconds: float
     must_beat_seconds: float
     warnings: list[str]
-
-    @property
-    def on_track_for_goal(self) -> bool:
-        return self.projected_finish <= self.goal_seconds
 
     @property
     def on_track_for_sub4(self) -> bool:

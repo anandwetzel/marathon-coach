@@ -101,26 +101,25 @@ def main(argv: list[str] | None = None) -> int:
 # --- Commands --------------------------------------------------------------
 
 def cmd_generate(cfg: dict, args) -> int:
-    plan = _fresh_plan(cfg)
-    result = adapt_plan(cfg, plan)
-    moved = schedulemod.apply_schedule_moves(result.plan, cfg)
-    save(result.plan, cfg["plan_path"])
-    ics = calendar_feed.write(result.plan, cfg)
+    from .plan.rebuild import rebuild_plan
+    before_moves = logbook.schedule_moves(cfg)
+    result = rebuild_plan(cfg)
+    plan = result.plan
 
-    print(f"Generated {len(result.plan.weeks)} weeks: "
-          f"{result.plan.weeks[0].start} to {result.plan.weeks[-1].end}")
-    print(f"Race: {result.plan.race_name} on {result.plan.race_date}")
-    print(f"Peak week: {result.plan.peak_week.planned_miles:g} mi "
-          f"(week {result.plan.peak_week.index})")
+    print(f"Generated {len(plan.weeks)} weeks: "
+          f"{plan.weeks[0].start} to {plan.weeks[-1].end}")
+    print(f"Race: {plan.race_name} on {plan.race_date}")
+    print(f"Peak week: {plan.peak_week.planned_miles:g} mi "
+          f"(week {plan.peak_week.index})")
     print(f"Plan written to {cfg['plan_path']}")
-    print(f"Calendar written to {ics}")
-    for warning in result.plan.warnings:
+    print(f"Calendar written to {cfg['ics_path']}")
+    for warning in plan.warnings:
         print(f"  warning: {warning}")
     if result.adaptations:
         print(f"\n{len(result.adaptations)} adaptation(s) applied:")
         print(describe(result))
-    if moved:
-        print(f"{moved} manual schedule move(s) re-applied.")
+    if before_moves:
+        print(f"{len(before_moves)} manual schedule move(s) re-applied.")
     return 0
 
 
@@ -308,6 +307,7 @@ def cmd_import_strava(cfg: dict, args) -> int:
 
 def cmd_sync_strava(cfg: dict, args) -> int:
     from . import strava
+    from .plan.rebuild import rebuild_plan
     if not strava.is_configured(cfg):
         print("Set strava.client_id and strava.client_secret first "
               "(Log tab in the dashboard, or overrides.yaml).")
@@ -319,11 +319,7 @@ def cmd_sync_strava(cfg: dict, args) -> int:
     result = strava.sync_activities(cfg, lookback_days=args.days)
     print(f"Strava sync: {result}")
     if result.imported:
-        plan = _fresh_plan(cfg)
-        adapted = adapt_plan(cfg, plan)
-        schedulemod.apply_schedule_moves(adapted.plan, cfg)
-        save(adapted.plan, cfg["plan_path"])
-        calendar_feed.write(adapted.plan, cfg)
+        adapted = rebuild_plan(cfg)
         print(f"Plan re-adapted ({len(adapted.adaptations)} change(s)).")
     return 0
 
@@ -403,16 +399,13 @@ def _fresh_plan(cfg: dict) -> Plan:
 
 
 def _load_plan(cfg: dict, quiet: bool = False) -> Plan | None:
+    from .plan.rebuild import rebuild_plan
     path = Path(cfg["plan_path"])
     if path.exists():
         return load(path)
     if not quiet:
         print("No plan yet - generating one.")
-    plan = _fresh_plan(cfg)
-    result = adapt_plan(cfg, plan)
-    schedulemod.apply_schedule_moves(result.plan, cfg)
-    save(result.plan, path)
-    return result.plan
+    return rebuild_plan(cfg).plan
 
 
 def _week_start(plan: Plan, index: int) -> date | None:

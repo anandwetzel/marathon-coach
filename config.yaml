@@ -118,10 +118,11 @@ rules:
   max_weekly_increase_pct: 0.10
   build_weeks_before_cutback: 3
   cutback_pct: 0.78
-  # Warning threshold only. Higdon-style plans legitimately run a long run near
-  # half of weekly volume, so this is reported rather than enforced; the hard
-  # ceilings that survive rescaling live in src/plan/adapt.py.
+  # Warning threshold for template validation. Higdon-style plans legitimately
+  # run a long run near half of weekly volume. The hard ceiling after rescaling
+  # is long_run_hard_share.
   long_run_max_fraction: 0.35
+  long_run_hard_share: 0.55
   long_run_cap_miles: 20.0
   # 7-day load divided by 28-day average. Above this, the week gets flagged.
   acwr_flag: 1.5

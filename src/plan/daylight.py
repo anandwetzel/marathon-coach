@@ -24,12 +24,6 @@ LIT = "lit"
 MARGINAL = "marginal"
 DARK = "dark"
 
-DAYLIGHT_LABEL = {
-    LIT: "daylight",
-    MARGINAL: "fading light",
-    DARK: "dark",
-}
-
 
 @dataclass
 class SunTimes:

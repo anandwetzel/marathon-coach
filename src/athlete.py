@@ -156,11 +156,6 @@ def paces_from_vdot(vdot: float) -> dict[str, float]:
     return paces
 
 
-def vdot_for_target(miles: float, seconds: float) -> float:
-    """The VDOT a goal performance would require."""
-    return vdot_from_performance(miles, seconds)
-
-
 def hr_zones(age: int | None, resting_hr: int | None = None) -> dict[str, tuple[int, int]]:
     """Heart-rate zones from the Nes age formula, which fits adults better than
     the 220-age rule. Returns empty when age is unknown.
@@ -209,21 +204,8 @@ class Fitness:
         return self.marathon_potential * volume_penalty(self.peak_weekly_miles)
 
     @property
-    def predicted_marathon_riegel(self) -> float:
-        return predict_marathon_riegel(self.source_seconds, self.source_miles,
-                                       self.peak_weekly_miles)
-
-    @property
     def predicted_marathon_pace(self) -> float:
         return self.predicted_marathon / MARATHON_MILES
-
-    @property
-    def predicted_half(self) -> float:
-        return race_time_for_vdot(self.vdot, HALF_MILES)
-
-    def gap_to(self, goal_seconds: float) -> float:
-        """Positive means the prediction is slower than the goal."""
-        return self.predicted_marathon - goal_seconds
 
 
 def build_fitness(source: str, miles: float, seconds: float,
@@ -288,12 +270,12 @@ def baseline_fitness(cfg: dict) -> Fitness:
     )
 
 
-def _race_time_for_vdot(vdot: float, miles: float) -> float:
+def race_time_for_vdot(vdot: float, miles: float) -> float:
     """Time this VDOT implies at a race distance. Solved iteratively because
     the sustainable fraction of VO2max itself depends on the finish time.
     """
     metres = miles * MILE_M
-    minutes = metres / velocity_at_vo2(vdot * 0.9) # seed
+    minutes = metres / velocity_at_vo2(vdot * 0.9)  # seed
     for _ in range(60):
         velocity = velocity_at_vo2(vdot * pct_vo2max(minutes))
         new_minutes = metres / velocity
@@ -302,10 +284,6 @@ def _race_time_for_vdot(vdot: float, miles: float) -> float:
             break
         minutes = new_minutes
     return minutes * 60.0
-
-
-def race_time_for_vdot(vdot: float, miles: float) -> float:
-    return _race_time_for_vdot(vdot, miles)
 
 
 def goal_paces(cfg: dict) -> dict[str, float]:

@@ -25,14 +25,6 @@ from .plan.schedule import assign_fingerprints, calendar_uid
 PRODID = "-//marathon-coach//EN"
 CALENDAR_NAME = "Marathon Training"
 
-# Sessions that are not runs still belong in the calendar - the plan only works
-# if climbing and strength are visible alongside it.
-EMOJI_FREE_PREFIX = {
-    "rest": "Rest",
-    "climb": "Climb",
-    "strength": "Strength",
-}
-
 REMINDER_MINUTES = 60
 
 

@@ -7,7 +7,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from src import calendar_feed, gear as gearmod, log as logbook, metrics, strava
+from src import gear as gearmod, log as logbook, metrics, strava
 from src.athlete import (
     ZONE_LABEL,
     format_duration,
@@ -20,8 +20,7 @@ from src.config import (
     cross_training_name, cross_training_days,
 )
 from src.plan import daylight as D
-from src.plan.adapt import adapt_plan
-from src.plan.generator import build_plan, load as load_plan, save as save_plan
+from src.plan.generator import load as load_plan
 from src.plan import schedule as schedulemod
 
 try:
@@ -90,13 +89,8 @@ def regenerate(cfg: dict) -> int:
 
 
 def _rebuild(cfg: dict, return_adaptations: bool = False):
-    fitness = metrics.current_fitness(cfg)
-    overrides = logbook.long_run_overrides(cfg)
-    plan = build_plan(cfg, fitness=fitness, long_run_overrides=overrides)
-    result = adapt_plan(cfg, plan)
-    schedulemod.apply_schedule_moves(result.plan, cfg)
-    save_plan(result.plan, cfg["plan_path"])
-    calendar_feed.write(result.plan, cfg)
+    from src.plan.rebuild import rebuild_plan
+    result = rebuild_plan(cfg)
     if return_adaptations:
         return result.plan, len(result.adaptations)
     return result.plan
@@ -124,7 +118,7 @@ def daylight_badge(tag: str) -> str:
             f"border-radius:3px;font-size:0.72em'>{label}</span>")
 
 
-def render_session(session, key_prefix: str, cfg: dict, show_log: bool = True):
+def render_session(session, cfg: dict) -> None:
     if session.kind == "rest":
         st.markdown(f"**Rest** &nbsp; <span style='color:#888'>"
                     f"no running</span>", unsafe_allow_html=True)
@@ -463,7 +457,7 @@ def _render_day_detail(cfg: dict, plan, day: date, today: date) -> None:
         st.caption("Nothing planned — drag a session here, or enjoy the rest day.")
     for session in sessions:
         with st.container(border=True):
-            render_session(session, f"day_{day.isoformat()}", cfg)
+            render_session(session, cfg)
 
     if not logged.empty:
         for _, row in logged.iterrows():
@@ -515,7 +509,7 @@ def page_this_week_list(cfg: dict, plan, today: date) -> None:
             marker = " (today)" if day == today else ""
             st.markdown(f"**{day:%A %d %b}**{marker}")
             for session in sessions:
-                render_session(session, f"{week.index}_{day_str}", cfg)
+                render_session(session, cfg)
         with right:
             if not done.empty:
                 for _, row in done.iterrows():
@@ -523,10 +517,6 @@ def page_this_week_list(cfg: dict, plan, today: date) -> None:
             else:
                 st.caption("not logged")
         st.divider()
-
-
-def page_this_week(cfg: dict, plan, today: date) -> None:
-    page_schedule(cfg, plan, today)
 
 
 def _log_entry_label(row) -> str:

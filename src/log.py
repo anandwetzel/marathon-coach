@@ -69,19 +69,28 @@ def log_session(cfg: dict, when: date, kind: str = KIND_RUN, miles: float = 0.0,
                 duration: str | float | None = None, rpe: int | None = None,
                 pain: int = 0, pain_location: str = "", label: str = "",
                 notes: str = "", source: str = "manual",
-                external_id: str | None = None) -> int:
+                external_id: str | None = None,
+                conn: sqlite3.Connection | None = None) -> int:
+    """Insert a session. Duplicate ``external_id`` raises IntegrityError.
+
+    Pass an open ``conn`` to batch imports inside one transaction.
+    """
     duration_s = parse_duration(duration) if duration not in (None, "") else None
-    with connect(cfg) as conn:
-        cur = conn.execute(
-            """INSERT OR REPLACE INTO sessions
-               (date, kind, miles, duration_s, rpe, pain, pain_location,
-                label, notes, source, external_id, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (when.isoformat(), kind, float(miles or 0), duration_s, rpe,
-             int(pain or 0), pain_location, label, notes, source, external_id,
-             datetime.now().isoformat(timespec="seconds")),
-        )
-        return cur.lastrowid
+    values = (
+        when.isoformat(), kind, float(miles or 0), duration_s, rpe,
+        int(pain or 0), pain_location, label, notes, source, external_id,
+        datetime.now().isoformat(timespec="seconds"),
+    )
+    sql = """INSERT INTO sessions
+             (date, kind, miles, duration_s, rpe, pain, pain_location,
+              label, notes, source, external_id, created_at)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"""
+    if conn is not None:
+        cur = conn.execute(sql, values)
+        return int(cur.lastrowid)
+    with connect(cfg) as db:
+        cur = db.execute(sql, values)
+        return int(cur.lastrowid)
 
 
 def delete_session(cfg: dict, session_id: int) -> None:
@@ -133,14 +142,20 @@ def get_session(cfg: dict, session_id: int) -> dict | None:
     return dict(row)
 
 
-def has_external_id(cfg: dict, external_id: str | None) -> bool:
+def has_external_id(cfg: dict, external_id: str | None,
+                    conn: sqlite3.Connection | None = None) -> bool:
     if not external_id:
         return False
-    with connect(cfg) as conn:
+    if conn is not None:
         row = conn.execute(
             "SELECT 1 FROM sessions WHERE external_id = ? LIMIT 1",
             (external_id,)).fetchone()
-    return row is not None
+        return row is not None
+    with connect(cfg) as db:
+        row = db.execute(
+            "SELECT 1 FROM sessions WHERE external_id = ? LIMIT 1",
+            (external_id,)).fetchone()
+        return row is not None
 
 
 def update_session(cfg: dict, session_id: int, when: date, kind: str = KIND_RUN,
@@ -221,9 +236,33 @@ def days_since_last_run(cfg: dict, as_of: date) -> int | None:
 
 
 def best_race(cfg: dict, since: date | None = None) -> dict | None:
-    """The most recent logged race, used to recalibrate training paces."""
+    """The logged race implying the highest VDOT (best fitness evidence)."""
+    from .athlete import vdot_from_performance
+
     df = load_sessions(cfg, start=since)
     races = df[(df["kind"] == KIND_RACE) & (df["miles"] > 0)
+               & df["duration_s"].notna()]
+    if races.empty:
+        return None
+    scored = []
+    for _, row in races.iterrows():
+        vdot = vdot_from_performance(float(row["miles"]), float(row["duration_s"]))
+        scored.append((vdot, row))
+    scored.sort(key=lambda item: (item[0], item[1]["date"]))
+    row = scored[-1][1]
+    return {
+        "date": row["date"],
+        "miles": float(row["miles"]),
+        "duration_s": float(row["duration_s"]),
+        "label": row["label"] or "race",
+    }
+
+
+def most_recent_race(cfg: dict, since: date | None = None,
+                     min_miles: float = 0.0) -> dict | None:
+    """Most recent race on or after ``since``, optionally above a distance floor."""
+    df = load_sessions(cfg, start=since)
+    races = df[(df["kind"] == KIND_RACE) & (df["miles"] >= min_miles)
                & df["duration_s"].notna()]
     if races.empty:
         return None
@@ -237,6 +276,7 @@ def best_race(cfg: dict, since: date | None = None) -> dict | None:
 
 
 def set_long_run_override(cfg: dict, week_index: int, day: str | None) -> None:
+    """Persist a per-week long-run day override (used by schedule UI / tests)."""
     with connect(cfg) as conn:
         if day:
             conn.execute(
@@ -288,7 +328,10 @@ _DISTANCE_METERS_FLOOR = 100.0
 _DATE_COLS = ["Activity Date", "activity date", "date"]
 _TYPE_COLS = ["Activity Type", "activity type", "type"]
 _NAME_COLS = ["Activity Name", "activity name", "name"]
-_DIST_COLS = ["Distance", "distance", "Distance (km)", "Distance (m)"]
+_DIST_COLS = [
+    "Distance (mi)", "Distance (km)", "Distance (m)",
+    "Distance", "distance",
+]
 _TIME_COLS = ["Moving Time", "Elapsed Time", "moving time", "elapsed time"]
 _ID_COLS = ["Activity ID", "activity id", "id"]
 
@@ -297,19 +340,19 @@ def import_strava_csv(cfg: dict, path: str | Path,
                       distance_unit: str = "auto") -> tuple[int, int]:
     """Import Strava's activities.csv. Returns (imported, skipped).
 
-    ``distance_unit`` is ``auto`` (detect meters vs km vs mi), ``m``, ``km``,
-    or ``mi``. Prefer auto — many exports store Distance in meters even when
-    the Strava website shows kilometres.
+    ``distance_unit`` is ``auto`` (header + magnitude), ``m``, ``km``, or ``mi``.
+    Prefer auto — many exports store Distance in meters even when the website
+    shows kilometres.
     """
     imported = skipped = 0
-    with open(path, newline="", encoding="utf-8-sig") as f:
+    with open(path, newline="", encoding="utf-8-sig") as f, connect(cfg) as conn:
         for row in csv.DictReader(f):
             parsed = _parse_strava_row(row, distance_unit)
             if not parsed:
                 skipped += 1
                 continue
             try:
-                log_session(cfg, source="strava", **parsed)
+                log_session(cfg, source="strava", conn=conn, **parsed)
                 imported += 1
             except sqlite3.IntegrityError:
                 skipped += 1
@@ -319,32 +362,50 @@ def import_strava_csv(cfg: dict, path: str | Path,
 def distance_to_miles(value: float, unit: str = "auto") -> float:
     """Convert a Strava distance field to miles.
 
-    Auto mode: values ≥ 100 are treated as meters (typical CSV export);
-    smaller values are treated as kilometres (website-style decimals).
+    Auto mode: values ≥ 100 are meters; smaller values follow ``unit`` when it
+    is km/mi, otherwise kilometres (Strava's usual decimal export).
     """
     unit = (unit or "auto").lower().strip()
     if unit in {"m", "meter", "meters", "metre", "metres"}:
         return value / METERS_PER_MILE
     if unit in {"mi", "mile", "miles"}:
         if value >= _DISTANCE_METERS_FLOOR:
-            # Guardrail: user picked miles but the file is clearly meters.
             return value / METERS_PER_MILE
         return value
     if unit in {"km", "kilometer", "kilometers", "kilometre", "kilometres"}:
         if value >= _DISTANCE_METERS_FLOOR:
             return value / METERS_PER_MILE
         return value / KM_PER_MILE
-    # auto
+    # auto without an explicit header hint
     if value >= _DISTANCE_METERS_FLOOR:
         return value / METERS_PER_MILE
-    # Sub-100 decimals from the website-style export are kilometres.
     return value / KM_PER_MILE
+
+
+def _unit_from_distance_header(header: str | None) -> str | None:
+    if not header:
+        return None
+    low = header.lower()
+    if "(mi)" in low or "mile" in low:
+        return "mi"
+    if "(km)" in low or "kilomet" in low:
+        return "km"
+    if "(m)" in low:
+        return "m"
+    return None
 
 
 def _pick(row: dict, candidates: list[str]) -> str | None:
     for key in candidates:
         if key in row and row[key] not in (None, ""):
             return row[key]
+    return None
+
+
+def _pick_key(row: dict, candidates: list[str]) -> str | None:
+    for key in candidates:
+        if key in row and row[key] not in (None, ""):
+            return key
     return None
 
 
@@ -366,11 +427,16 @@ def _parse_strava_row(row: dict, distance_unit: str) -> dict | None:
         kind = KIND_RUN if "run" in activity else KIND_CROSS
 
     miles = 0.0
-    raw_dist = _pick(row, _DIST_COLS)
+    dist_key = _pick_key(row, _DIST_COLS)
+    raw_dist = row.get(dist_key) if dist_key else None
     if raw_dist:
         try:
             value = float(str(raw_dist).replace(",", ""))
-            miles = distance_to_miles(value, distance_unit)
+            header_unit = _unit_from_distance_header(dist_key)
+            unit = distance_unit
+            if unit in {"", "auto"} and header_unit:
+                unit = header_unit
+            miles = distance_to_miles(value, unit)
         except ValueError:
             miles = 0.0
 
@@ -443,7 +509,7 @@ def import_gpx(cfg: dict, path: str | Path) -> dict:
     duration = (stamps[-1] - stamps[0]).total_seconds() if len(stamps) >= 2 else None
     when = stamps[0].date() if stamps else date.today()
 
-    miles = metres / 1609.344
+    miles = metres / METERS_PER_MILE
     log_session(cfg, when=when, kind=KIND_RUN, miles=round(miles, 2),
                 duration=duration, source="gpx",
                 external_id=f"gpx:{Path(path).stem}")
@@ -479,14 +545,3 @@ def summarise(row: pd.Series) -> str:
     if row.get("label"):
         bits.append(f"({row['label']})")
     return " ".join(bits)
-
-
-def entry_label(row: pd.Series) -> str:
-    """Short picker label: date: type distance."""
-    day = row["date"]
-    day_str = day.isoformat() if hasattr(day, "isoformat") else str(day)[:10]
-    kind = str(row["kind"])
-    miles = float(row["miles"] or 0)
-    if miles:
-        return f"{day_str}: {kind} {miles:g} mi"
-    return f"{day_str}: {kind}"

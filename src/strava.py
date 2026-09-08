@@ -31,7 +31,7 @@ DEFAULT_REDIRECT = "http://localhost:8501/"
 INITIAL_LOOKBACK_DAYS = 90
 SYNC_OVERLAP_HOURS = 36
 PER_PAGE = 50
-METERS_PER_MILE = 1609.344
+METERS_PER_MILE = logbook.METERS_PER_MILE
 
 
 @dataclass
@@ -201,37 +201,40 @@ def sync_activities(cfg: dict, *, after: datetime | None = None,
 
     result = SyncResult()
     page = 1
-    while True:
-        params = {
-            "after": int(after.timestamp()),
-            "page": page,
-            "per_page": PER_PAGE,
-        }
-        batch = _get_json(
-            f"{API_BASE}/athlete/activities?{urllib.parse.urlencode(params)}",
-            token,
-        )
-        if not isinstance(batch, list) or not batch:
-            break
-        for activity in batch:
-            result.fetched += 1
-            parsed = activity_to_session(activity)
-            if not parsed:
-                result.skipped += 1
-                continue
-            if logbook.has_external_id(cfg, parsed.get("external_id")):
-                result.skipped += 1
-                continue
-            try:
-                logbook.log_session(cfg, source="strava", **parsed)
-                result.imported += 1
-            except sqlite3.IntegrityError:
-                result.skipped += 1
-        if len(batch) < PER_PAGE:
-            break
-        page += 1
-        if page > 40:
-            break
+    with logbook.connect(cfg) as conn:
+        while True:
+            params = {
+                "after": int(after.timestamp()),
+                "page": page,
+                "per_page": PER_PAGE,
+            }
+            batch = _get_json(
+                f"{API_BASE}/athlete/activities?{urllib.parse.urlencode(params)}",
+                token,
+            )
+            if not isinstance(batch, list) or not batch:
+                break
+            for activity in batch:
+                result.fetched += 1
+                parsed = activity_to_session(activity)
+                if not parsed:
+                    result.skipped += 1
+                    continue
+                if logbook.has_external_id(
+                        cfg, parsed.get("external_id"), conn=conn):
+                    result.skipped += 1
+                    continue
+                try:
+                    logbook.log_session(
+                        cfg, source="strava", conn=conn, **parsed)
+                    result.imported += 1
+                except sqlite3.IntegrityError:
+                    result.skipped += 1
+            if len(batch) < PER_PAGE:
+                break
+            page += 1
+            if page > 40:
+                break
 
     tokens["last_sync_at"] = datetime.now(timezone.utc).isoformat(
         timespec="seconds")

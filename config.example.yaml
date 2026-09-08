@@ -84,6 +84,7 @@ rules:
   build_weeks_before_cutback: 3
   cutback_pct: 0.78
   long_run_max_fraction: 0.35
+  long_run_hard_share: 0.55
   long_run_cap_miles: 20.0
   acwr_flag: 1.5
   acwr_floor: 0.8
